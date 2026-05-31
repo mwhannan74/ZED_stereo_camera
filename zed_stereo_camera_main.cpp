@@ -23,6 +23,12 @@
       - For maximum frame rate, retrieve only the outputs your application actually needs.
       - OpenCV display and CPU retrieval of large point clouds can reduce frame rate.
       - Press ESC or Q in an OpenCV window to exit.
+
+    Quick glossary (ZED SDK terms used in this file):
+      - sl::Mat: ZED SDK image/measure container (similar role to cv::Mat in OpenCV).
+      - VIEW: image-like outputs mainly for visualization (LEFT, RIGHT, DEPTH display).
+      - MEASURE: numeric outputs for computation (DEPTH, CONFIDENCE, XYZRGBA, etc.).
+      - XYZRGBA: per-pixel 3D point (X, Y, Z) plus packed color information.
 */
 
 #include <sl/Camera.hpp>
@@ -107,11 +113,20 @@ namespace user_settings
 } // namespace user_settings
 
 // -----------------------------
-// Small utilities
+// Helper utilities
 // -----------------------------
 
-// Convert a sl::Mat stored in CPU memory to a cv::Mat header that shares the same memory.
-// No image copy occurs here. The ZED sl::Mat must remain alive while the cv::Mat is used.
+/**
+ * @brief Build an OpenCV matrix view over a ZED SDK matrix.
+ * @param input Source ZED matrix in CPU memory.
+ * @return cv::Mat header that references the same pixel buffer (no copy).
+ * @throws std::runtime_error if the ZED matrix type is not supported.
+ *
+ * @note The returned `cv::Mat` shares memory with `input`. Keep `input` alive
+ * while using the returned matrix.
+ * @note Writing to the returned `cv::Mat` also writes into the same underlying
+ * ZED buffer for that frame because no copy is made.
+ */
 static cv::Mat slMatToCvMat(sl::Mat &input)
 {
     int cv_type = -1;
@@ -157,6 +172,12 @@ static cv::Mat slMatToCvMat(sl::Mat &input)
         input.getStepBytes(sl::MEM::CPU));
 }
 
+/**
+ * @brief Show an image in an OpenCV window, optionally scaled.
+ * @param window_name Existing window name.
+ * @param image Image to display.
+ * @param scale Display scale factor (1.0 = original size).
+ */
 static void showScaled(const std::string &window_name, const cv::Mat &image, double scale)
 {
     if (image.empty())
@@ -183,6 +204,11 @@ static void showScaled(const std::string &window_name, const cv::Mat &image, dou
     cv::imshow(window_name, display_image);
 }
 
+/**
+ * @brief Format a millimeter distance as a meter string.
+ * @param millimeters Distance value in millimeters.
+ * @return Text like "1.234 m" or "nan" if the input is not finite.
+ */
 static std::string metersText(float millimeters)
 {
     if (!std::isfinite(millimeters))
@@ -195,9 +221,17 @@ static std::string metersText(float millimeters)
     return oss.str();
 }
 
+/**
+ * @brief Lightweight application-side FPS estimator.
+ *
+ * Computes FPS over short time windows to reduce per-frame jitter.
+ */
 class FpsMeter
 {
 public:
+    /**
+     * @brief Register one processed frame and update the rolling FPS estimate.
+     */
     void tick()
     {
         ++frame_count_;
@@ -212,6 +246,10 @@ public:
         }
     }
 
+    /**
+     * @brief Get the latest FPS estimate.
+     * @return Frames per second.
+     */
     double fps() const { return fps_; }
 
 private:
@@ -220,6 +258,15 @@ private:
     double fps_ = 0.0;
 };
 
+/**
+ * @brief Draw a measurement overlay on the left camera image.
+ * @param image Image to annotate in-place.
+ * @param app_fps Current application FPS estimate.
+ * @param depth_z_mm Center-pixel Z depth in millimeters.
+ * @param confidence Center-pixel confidence value.
+ * @param xyzrgba Center-pixel XYZRGBA point.
+ * @param range_mm Center-pixel Euclidean range in millimeters.
+ */
 static void drawOverlay(
     cv::Mat &image,
     double app_fps,
@@ -228,7 +275,6 @@ static void drawOverlay(
     const sl::float4 &xyzrgba,
     float range_mm)
 {
-
     const int x = image.cols / 2;
     const int y = image.rows / 2;
 
@@ -286,6 +332,11 @@ static void drawOverlay(
     }
 }
 
+/**
+ * @brief Create OpenCV windows for the enabled output views.
+ *
+ * Windows are created only for retrieval flags enabled in `user_settings`.
+ */
 static void createWindows()
 {
     if (user_settings::RETRIEVE_LEFT_IMAGE)
@@ -306,6 +357,18 @@ static void createWindows()
     }
 }
 
+/**
+ * @brief Entry point for the ZED tutorial application.
+ * @return 0 on clean shutdown, non-zero if camera open fails.
+ *
+ * Opens the camera, grabs frames, retrieves selected image/measure outputs,
+ * displays windows, and exits on ESC/Q.
+ *
+ * Beginner extension points:
+ * - Adjust `user_settings::CAMERA_RESOLUTION` and `CAMERA_FPS`.
+ * - Disable unused retrieval flags to improve performance.
+ * - Replace center-pixel sampling with your own region/object measurements.
+ */
 int main()
 {
     using namespace user_settings;
@@ -318,6 +381,8 @@ int main()
     // -----------------------------
     // Configure camera before open()
     // -----------------------------
+    // `InitParameters` are one-time startup settings.
+    // Think of these as "how the camera and SDK pipeline should be created."
     sl::InitParameters init_params;
 
     init_params.camera_resolution = CAMERA_RESOLUTION;
@@ -329,7 +394,7 @@ int main()
     init_params.depth_maximum_distance = DEPTH_MAXIMUM_DISTANCE;
     init_params.sdk_verbose = 1;
 
-    // If the camera temporarily disconnects, this lets the SDK try to recover during grab().
+    // If USB is unstable and the camera briefly drops, allow SDK-side recovery attempts.
     init_params.async_grab_camera_recovery = true;
 
     // 0 means no SDK-side compute FPS cap. The camera FPS setting above remains the capture target.
@@ -354,6 +419,7 @@ int main()
     // -----------------------------
     // Configure per-frame processing
     // -----------------------------
+    // `RuntimeParameters` are applied on each `grab()` call and can be changed while running.
     sl::RuntimeParameters runtime_params;
     runtime_params.enable_depth = true;
     runtime_params.enable_fill_mode = ENABLE_DEPTH_FILL_MODE;
@@ -364,7 +430,9 @@ int main()
     // -----------------------------
     // Allocate ZED output buffers
     // -----------------------------
-    // CPU memory is used because OpenCV display and getValue() are CPU operations.
+    // This sample allocates once and reuses buffers every frame.
+    // CPU memory is used because OpenCV display and `getValue()` sampling happen on CPU.
+    // In production apps, retrieve only what you need to reduce transfer/processing cost.
     sl::Mat left_image(image_size, sl::MAT_TYPE::U8_C4, sl::MEM::CPU);
     sl::Mat right_image(image_size, sl::MAT_TYPE::U8_C4, sl::MEM::CPU);
     sl::Mat depth_image_display(image_size, sl::MAT_TYPE::U8_C4, sl::MEM::CPU);
@@ -384,6 +452,11 @@ int main()
     // -----------------------------
     // Main camera loop
     // -----------------------------
+    // Per-frame flow:
+    //   1) grab() acquires and processes the next frame.
+    //   2) retrieveImage()/retrieveMeasure() copy selected outputs to CPU buffers.
+    //   3) getValue() samples example pixels for tutorial measurements.
+    //   4) OpenCV display renders optional windows and handles key input.
     while (true)
     {
         // grab() blocks until a new frame is available, then runs image/depth processing.
@@ -398,7 +471,8 @@ int main()
         fps_meter.tick();
         ++frame_index;
 
-        // retrieveImage() returns display/image views.
+        // `retrieveImage()` returns image-style outputs intended for visualization.
+        // Examples: LEFT/RIGHT camera images and the colorized depth view.
         if (RETRIEVE_LEFT_IMAGE)
         {
             zed.retrieveImage(left_image, sl::VIEW::LEFT, sl::MEM::CPU);
@@ -413,7 +487,8 @@ int main()
             zed.retrieveImage(depth_image_display, sl::VIEW::DEPTH, sl::MEM::CPU);
         }
 
-        // retrieveMeasure() returns numeric measures for real computation.
+        // `retrieveMeasure()` returns numeric data products for real computation.
+        // Examples: metric depth, confidence, disparity, normals, point clouds.
         if (RETRIEVE_DEPTH_MAP_F32)
         {
             zed.retrieveMeasure(depth_map_f32, sl::MEASURE::DEPTH, sl::MEM::CPU);
@@ -439,7 +514,8 @@ int main()
             zed.retrieveMeasure(depth_u16_mm, sl::MEASURE::DEPTH_U16_MM, sl::MEM::CPU);
         }
 
-        // Sample the center pixel as a simple measurement sanity check.
+        // Sample one fixed pixel (the image center) as a quick sanity check.
+        // This is tutorial logic, not a robust measurement strategy.
         const int center_x = static_cast<int>(image_size.width / 2);
         const int center_y = static_cast<int>(image_size.height / 2);
 
@@ -474,7 +550,7 @@ int main()
             }
         }
 
-        // Optional: show how to read other numeric outputs if enabled.
+        // Optional diagnostics: print less-frequent snapshots to keep console noise low.
         if (RETRIEVE_DISPARITY_F32 && frame_index % 120 == 0)
         {
             float center_disparity = std::numeric_limits<float>::quiet_NaN();
@@ -499,7 +575,8 @@ int main()
             std::cout << "Center depth U16 mm: " << center_depth_u16 << "\n";
         }
 
-        // Display. Showing multiple full-res windows may be slower than camera capture.
+        // Display path.
+        // Multiple full-resolution windows can become the bottleneck before camera/depth does.
         if ((frame_index % DISPLAY_EVERY_N_FRAMES) == 0)
         {
             if (RETRIEVE_LEFT_IMAGE)
