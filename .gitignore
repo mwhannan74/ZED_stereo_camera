@@ -1,0 +1,7 @@
+build/
+.vscode/
+*.svo
+*.svo2
+captures/
+recordings/
+output/
