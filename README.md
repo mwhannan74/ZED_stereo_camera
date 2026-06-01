@@ -250,10 +250,6 @@ If CMake reports OpenCV under the ZED SDK dependency folder, stop and fix `local
 
 ## Build
 
-Use `RelWithDebInfo` rather than `Debug`.
-
-The ZED SDK libraries are built for release-style use, and Debug builds can produce warnings or instability.
-
 ```powershell
 cmake --build build --config RelWithDebInfo
 ```
@@ -351,6 +347,14 @@ CMake: Debug
 ```
 
 If VS Code behaves differently from PowerShell, delete the `build` folder and reconfigure. The PowerShell commands above are the reference build path.
+
+For IntelliSense in this project, use manual include paths through:
+
+```text
+.vscode/c_cpp_properties.json
+```
+
+This is the current known-good setup for reliable header navigation in VS Code.
 
 ---
 

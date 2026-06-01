@@ -7,6 +7,9 @@ project(zed_stereo_camera LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Export compile flags/includes for IntelliSense and other editor tooling.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # ------------------------------------------------------------
 # OpenCV
 # ------------------------------------------------------------
