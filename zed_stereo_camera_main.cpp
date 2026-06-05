@@ -24,11 +24,10 @@
 namespace user_settings
 {
 
-    static constexpr zed_bridge::CameraResolution CAMERA_RESOLUTION = zed_bridge::CameraResolution::HD720;
-    static constexpr int CAMERA_FPS = 60;
+    static constexpr zed_bridge::CameraResolution CAMERA_RESOLUTION = zed_bridge::CameraResolution::VGA;
+    static constexpr int CAMERA_FPS = 100;
 
-    //static constexpr zed_bridge::DepthMode DEPTH_MODE = zed_bridge::DepthMode::NeuralLight;
-    static constexpr zed_bridge::DepthMode DEPTH_MODE = zed_bridge::DepthMode::NeuralPlus;
+    static constexpr zed_bridge::DepthMode DEPTH_MODE = zed_bridge::DepthMode::Neural;
 
     static constexpr float DEPTH_MINIMUM_DISTANCE = 300.0f;
     static constexpr float DEPTH_MAXIMUM_DISTANCE = 12000.0f;

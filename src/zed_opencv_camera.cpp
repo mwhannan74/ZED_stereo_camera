@@ -30,6 +30,8 @@ namespace zed_bridge
                 return sl::RESOLUTION::VGA;
             case CameraResolution::HD1080:
                 return sl::RESOLUTION::HD1080;
+            case CameraResolution::HD2K:
+                return sl::RESOLUTION::HD2K;
             case CameraResolution::HD720:
             default:
                 return sl::RESOLUTION::HD720;

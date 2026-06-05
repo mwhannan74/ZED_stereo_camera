@@ -10,6 +10,12 @@ namespace zed_bridge
 
     /**
      * @brief Camera input resolution options exposed by the bridge API.
+     * 
+     * Mode   | Resolution | FPS             | FOV
+     * HD2K   | 4416x1242  | 15              | Wide
+     * HD1080 | 3840x1080  | 30, 15          | Wide
+     * HD720  | 2560x720   | 60, 30, 15      | Extra Wide
+     * VGA    | 1344x376   | 100, 60, 30, 15 | Extra Wide
      */
     enum class CameraResolution
     {
@@ -20,7 +26,10 @@ namespace zed_bridge
         HD720,
 
         ///< Higher image detail with a lower practical frame rate.
-        HD1080
+        HD1080,
+
+        ///< Highest level of detail but lowest frame rate.
+        HD2K
     };
 
     /**
@@ -28,13 +37,21 @@ namespace zed_bridge
      */
     enum class DepthMode
     {
-        ///< Fastest neural depth mode; good for first real-time prototypes.
+        ///< Fastest neural depth mode; good for first real-time prototypes. 
         NeuralLight,
 
-        ///< Balanced neural depth mode.
+        ///< Balanced neural depth mode. 
+        // 100 FPS @ VGA with RTX 3070 Ti and 84% utilization.
+        // 60 FPS @ HD720 with RTX 3070 Ti and 70% utilization.
+        // 30 FPS @ HD1080 with RTX 3070 Ti and 50% utilization.
+        // 15 FPS @ HD4k with RTX 3070 Ti and 30% utilization.
         Neural,
 
-        ///< Higher-quality neural depth mode with heavier GPU cost.
+        ///< Higher-quality neural depth mode with heavier GPU cost. 
+        // Does not support VGA
+        // 48 FPS @ HD720 with RTX 3070 Ti and 83% utilization.
+        // 30 FPS @ HD1080 with RTX 3070 Ti and 70% utilization.
+        // 15 FPS @ HD4k with RTX 3070 Ti and 42% utilization.
         NeuralPlus
     };
 
