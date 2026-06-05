@@ -131,6 +131,9 @@ namespace zed_bridge
      *
      * Matrices reference bridge-owned buffers and remain valid until the next
      * successful grab or camera close. Clone any matrix that must outlive that.
+     *
+     * Outputs disabled in ZedCameraConfig are left empty. Check cv::Mat::empty()
+     * before reading a field unless the matching retrieval flag is known to be true.
      */
     struct ZedFrame
     {

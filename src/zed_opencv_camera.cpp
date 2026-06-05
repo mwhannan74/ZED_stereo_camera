@@ -191,16 +191,20 @@ namespace zed_bridge
             }
 
             const sl::ERROR_CODE grab_status = camera.grab(runtime_params);
-            if (grab_status != sl::ERROR_CODE::SUCCESS)
-            {
-                // TIMEOUT or transient recovery states can happen during USB/camera
-                // interruptions. The demo simply skips this frame and keeps trying.
-                return false;
-            }
+        if (grab_status != sl::ERROR_CODE::SUCCESS)
+        {
+            // TIMEOUT or transient recovery states can happen during USB/camera
+            // interruptions. The demo simply skips this frame and keeps trying.
+            return false;
+        }
 
-            // retrieveImage() returns image-style outputs for display or ordinary
-            // image processing. retrieveMeasure() returns numeric outputs such as
-            // metric depth, confidence, disparity, normals, and point clouds.
+        // Start from an empty frame so disabled outputs cannot leave stale
+        // cv::Mat headers from a previous use of the same ZedFrame object.
+        frame = ZedFrame{};
+
+        // retrieveImage() returns image-style outputs for display or ordinary
+        // image processing. retrieveMeasure() returns numeric outputs such as
+        // metric depth, confidence, disparity, normals, and point clouds.
             if (config.retrieve_left_image)
             {
                 camera.retrieveImage(left_image, sl::VIEW::LEFT, sl::MEM::CPU);
