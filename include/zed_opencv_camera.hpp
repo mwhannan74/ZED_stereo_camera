@@ -73,10 +73,10 @@ namespace zed_bridge
         DepthMode depth_mode = DepthMode::NeuralLight;
 
         ///< Minimum valid depth in millimeters; values <= 0 use SDK defaults.
-        float depth_minimum_distance_mm = 300.0f;
+        float depth_minimum_distance_mm = 300.0f;   // 300.0f is min Ideal Operating Range.
 
         ///< Maximum valid depth in millimeters; values <= 0 use SDK defaults.
-        float depth_maximum_distance_mm = 12000.0f;
+        float depth_maximum_distance_mm = 12000.0f;   // 12000.0f is max Ideal Operating Range, though it can see to 20m.
 
         ///< Runtime confidence threshold in [1,100]; lower rejects more pixels.
         int confidence_threshold = 95;
