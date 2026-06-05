@@ -13,8 +13,13 @@ namespace zed_bridge
      */
     enum class CameraResolution
     {
+        ///< Lower image/depth resolution with the highest practical camera rate.
         VGA,
+
+        ///< Good first choice for real-time work; commonly used at 60 FPS.
         HD720,
+
+        ///< Higher image detail with a lower practical frame rate.
         HD1080
     };
 
@@ -23,8 +28,13 @@ namespace zed_bridge
      */
     enum class DepthMode
     {
+        ///< Fastest neural depth mode; good for first real-time prototypes.
         NeuralLight,
+
+        ///< Balanced neural depth mode.
         Neural,
+
+        ///< Higher-quality neural depth mode with heavier GPU cost.
         NeuralPlus
     };
 
@@ -36,23 +46,55 @@ namespace zed_bridge
      */
     struct ZedCameraConfig
     {
+        ///< Camera image/depth resolution requested before opening the camera.
         CameraResolution resolution = CameraResolution::HD720;
+
+        ///< Target camera FPS requested before opening the camera.
         int fps = 60;
+
+        ///< SDK depth-processing quality/performance mode.
         DepthMode depth_mode = DepthMode::NeuralLight;
+
+        ///< Minimum valid depth in millimeters; values <= 0 use SDK defaults.
         float depth_minimum_distance_mm = 300.0f;
+
+        ///< Maximum valid depth in millimeters; values <= 0 use SDK defaults.
         float depth_maximum_distance_mm = 12000.0f;
+
+        ///< Runtime confidence threshold in [1,100]; lower rejects more pixels.
         int confidence_threshold = 95;
+
+        ///< Texture confidence threshold in [1,100] for low-texture filtering.
         int texture_confidence_threshold = 100;
+
+        ///< Enables SDK hole filling; useful for display, risky for measurement.
         bool enable_depth_fill_mode = false;
 
+        ///< Retrieves the left camera image as BGRA 8-bit OpenCV data.
         bool retrieve_left_image = true;
+
+        ///< Retrieves the right camera image as BGRA 8-bit OpenCV data.
         bool retrieve_right_image = true;
+
+        ///< Retrieves the SDK colorized depth view for display only.
         bool retrieve_depth_image_for_display = true;
+
+        ///< Retrieves numeric 32-bit floating-point Z depth in millimeters.
         bool retrieve_depth_map_f32 = true;
+
+        ///< Retrieves numeric 32-bit floating-point confidence values.
         bool retrieve_confidence_map_f32 = true;
+
+        ///< Retrieves 32-bit floating-point XYZRGBA point-cloud values.
         bool retrieve_point_cloud_xyzrgba = true;
+
+        ///< Retrieves optional 32-bit floating-point disparity values.
         bool retrieve_disparity_f32 = false;
+
+        ///< Retrieves optional 32-bit floating-point normal vectors.
         bool retrieve_normals_f32 = false;
+
+        ///< Retrieves optional unsigned 16-bit depth in millimeters.
         bool retrieve_depth_u16_mm = false;
     };
 

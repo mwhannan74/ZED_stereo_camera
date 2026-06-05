@@ -1,15 +1,39 @@
-# ZED Stereo Camera C++ Starter
+# ZED Stereo Camera OpenCV Bridge
 
-Minimal Windows 11 C++ starter project for a Stereolabs ZED stereo camera.
+Windows 11 C++ starter project for a Stereolabs ZED stereo camera.
 
-This project opens the first available ZED camera, runs the ZED SDK grab/depth loop, retrieves common image/depth outputs, and displays live OpenCV windows for quick validation and early application development.
+The project opens the first available ZED camera, runs the ZED SDK grab/depth loop, retrieves common image/depth outputs, and exposes those outputs as OpenCV `cv::Mat` values. A small demo executable displays the live streams and center-pixel measurements.
 
 The code is split into:
 
-- `zed_opencv_bridge`: a small library that owns the ZED SDK objects and exposes selected camera outputs as OpenCV `cv::Mat` values.
-- `zed_stereo_camera`: a demo executable that uses the bridge library for camera data and keeps display, overlay, FPS, and keyboard handling logic in the app.
+- `zed_opencv_bridge`: library target that owns ZED/CUDA SDK objects and exposes OpenCV-facing frame data.
+- `zed_stereo_camera`: demo executable that uses the bridge and owns display, overlay, FPS, and keyboard logic.
 
-The project is intentionally simple:
+The public bridge header intentionally avoids ZED and CUDA headers. Consumer code can depend on OpenCV-facing types while the bridge implementation handles the SDK-specific work.
+
+---
+
+## Quick start
+
+From PowerShell in the project folder:
+
+```powershell
+cmake -S . -B build `
+  -G "Visual Studio 17 2022" `
+  -A x64 `
+  -DCMAKE_TOOLCHAIN_FILE="C:/Users/mwhan/vcpkg/scripts/buildsystems/vcpkg.cmake" `
+  -DVCPKG_TARGET_TRIPLET=x64-windows
+
+cmake --build build --config RelWithDebInfo
+
+.\build\bin\RelWithDebInfo\zed_stereo_camera.exe
+```
+
+Use `RelWithDebInfo` for normal work. The ZED SDK libraries are built for release-style configurations, and Debug builds may warn or behave less reliably.
+
+---
+
+## Repository layout
 
 ```text
 ZED_stereo_camera/
@@ -27,9 +51,9 @@ No `CMakePresets.json`, `tasks.json`, or `launch.json` is required.
 
 ---
 
-## What this program is for
+## What this project is for
 
-Use this application as a working C++ starting point for:
+Use this project as a working C++ starting point for:
 
 - Verifying that your ZED 2 opens from your own code
 - Confirming full-rate image acquisition
@@ -42,13 +66,13 @@ Use this application as a working C++ starting point for:
 - Computing Euclidean range from XYZ
 - Prototyping an OpenCV-facing camera interface for a larger application
 
-This is not intended to be a final production architecture. It is a compact, readable baseline that proves the camera, SDK, CUDA, OpenCV, CMake setup, and library/executable boundary all work together.
+This is not a final production architecture. It is a compact baseline that proves the camera, SDK, CUDA, OpenCV, CMake setup, and library/executable boundary all work together.
 
 ---
 
 ## Project structure
 
-### Bridge library
+### `zed_opencv_bridge`
 
 The bridge library target is:
 
@@ -79,7 +103,7 @@ This file owns the ZED SDK dependency. It includes `sl/Camera.hpp`, opens the ca
 
 The `cv::Mat` values in `ZedFrame` reference bridge-owned buffers. They remain valid until the next successful `grab()` call or until the camera closes. Use `clone()` if another project needs to store a frame longer than that.
 
-### Demo executable
+### `zed_stereo_camera`
 
 The demo executable target is:
 
@@ -94,6 +118,12 @@ zed_stereo_camera_main.cpp
 ```
 
 The demo app includes only the bridge header and OpenCV display headers. It does not include ZED or CUDA headers directly.
+
+This separation is intentional:
+
+- ZED/CUDA setup stays inside the bridge implementation.
+- OpenCV `cv::Mat` is the data boundary between camera code and application code.
+- The demo can later be replaced by another executable that links the same bridge.
 
 ---
 
@@ -122,19 +152,13 @@ The demo app includes only the bridge header and OpenCV display headers. It does
 
 ---
 
-## Known-good local paths
+## Local paths
 
-This project is currently set up for these local paths:
+This project uses `local_paths.cmake` for machine-specific SDK locations:
 
 ```text
 VCPKG_ROOT   = C:/Users/mwhan/vcpkg
 ZED_SDK_ROOT = C:/Program Files (x86)/ZED SDK
-```
-
-These are configured in:
-
-```text
-local_paths.cmake
 ```
 
 If either path changes, update `local_paths.cmake`.
@@ -270,7 +294,7 @@ Close those tools before running this application. Only one process should own t
 
 ---
 
-## Configure CMake
+## Configure
 
 Open PowerShell in the project folder:
 
@@ -321,9 +345,11 @@ zed_opencv_bridge.vcxproj -> ...\build\RelWithDebInfo\zed_opencv_bridge.lib
 zed_stereo_camera.vcxproj -> ...\build\bin\RelWithDebInfo\zed_stereo_camera.exe
 ```
 
+If you build Debug, the ZED SDK may print a warning because its library was built in a release-style configuration. Prefer `RelWithDebInfo` unless you specifically need Debug.
+
 ---
 
-## Run
+## Run the demo
 
 Make sure the ZED camera is connected and all ZED GUI tools are closed.
 
@@ -362,7 +388,7 @@ Q
 
 ---
 
-## Run from VS Code
+## VS Code workflow
 
 After the PowerShell configure/build works, VS Code is straightforward.
 
@@ -409,7 +435,7 @@ CMake: Debug
 
 If VS Code behaves differently from PowerShell, delete the `build` folder and reconfigure. The PowerShell commands above are the reference build path.
 
-For IntelliSense in this project, use manual include paths through:
+For IntelliSense, use manual include paths through:
 
 ```text
 .vscode/c_cpp_properties.json
@@ -419,7 +445,7 @@ This is the current known-good setup for reliable header navigation in VS Code.
 
 ---
 
-## What the code retrieves
+## Retrieved outputs
 
 The bridge library can retrieve these ZED SDK outputs and expose them as OpenCV matrices in `zed_bridge::ZedFrame`.
 
@@ -488,7 +514,7 @@ Used for:
 range = sqrt(X*X + Y*Y + Z*Z)
 ```
 
-### Optional outputs
+### Optional diagnostic outputs
 
 These are available in the code but can be disabled for performance:
 
@@ -500,7 +526,7 @@ MEASURE::DEPTH_U16_MM
 
 ---
 
-## User-editable settings
+## Demo settings
 
 Demo camera and processing settings are near the top of:
 
@@ -547,9 +573,9 @@ These settings are copied into `zed_bridge::ZedCameraConfig` before opening the 
 
 ---
 
-## Using the bridge from another CMake target
+## Link the bridge from another target
 
-A second executable in this CMake project can consume the bridge without including ZED headers:
+A second executable in this CMake project can consume camera frames without including ZED headers:
 
 ```cmake
 add_executable(my_consumer

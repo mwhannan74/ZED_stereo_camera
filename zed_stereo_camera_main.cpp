@@ -2,7 +2,7 @@
  * @file zed_stereo_camera_main.cpp
  * @brief Demo executable for the ZED OpenCV bridge.
  *
- * The ZED SDK dependency is intentionally isolated in zed_opencv_bridge.
+ * The ZED SDK dependency is intentionally isolated in zed_bridge.
  * This file consumes camera output as cv::Mat values, displays selected images,
  * and overlays simple center-pixel measurements.
  */
@@ -24,30 +24,18 @@
 namespace user_settings
 {
 
-    // ZED 2 practical starting points:
-    //   - HD720 @ 60 FPS: good first choice for higher frame rate.
-    //   - HD1080 @ 30 FPS: better image detail, lower frame rate.
-    //   - VGA   @ 100 FPS: highest camera rate, lower image/depth resolution.
     static constexpr zed_bridge::CameraResolution CAMERA_RESOLUTION = zed_bridge::CameraResolution::HD720;
     static constexpr int CAMERA_FPS = 60;
 
-    // Depth mode tradeoff:
-    //   - NeuralLight: fastest neural mode; good for first real-time prototype.
-    //   - Neural:      balanced neural mode.
-    //   - NeuralPlus:  higher quality, heavier GPU load.
-    static constexpr zed_bridge::DepthMode DEPTH_MODE = zed_bridge::DepthMode::NeuralLight;
+    //static constexpr zed_bridge::DepthMode DEPTH_MODE = zed_bridge::DepthMode::NeuralLight;
+    static constexpr zed_bridge::DepthMode DEPTH_MODE = zed_bridge::DepthMode::NeuralPlus;
 
-    // Depth range clamp in millimeters. Values <= 0 let the SDK use camera defaults.
     static constexpr float DEPTH_MINIMUM_DISTANCE = 300.0f;
     static constexpr float DEPTH_MAXIMUM_DISTANCE = 12000.0f;
 
-    // Confidence values are in [1,100]; lower is better. Lower thresholds reject
-    // more pixels near edges, reflective surfaces, and low-texture areas.
     static constexpr int CONFIDENCE_THRESHOLD = 95;
     static constexpr int TEXTURE_CONFIDENCE_THRESHOLD = 100;
 
-    // Fill mode can complete holes in the depth map, but it may hide invalid pixels.
-    // Keep false for measurement/debugging. Consider true only for display use cases.
     static constexpr bool ENABLE_DEPTH_FILL_MODE = false;
 
     // OpenCV display controls. Window display can become the bottleneck before
@@ -55,8 +43,6 @@ namespace user_settings
     static constexpr double DISPLAY_SCALE = 1.0;
     static constexpr int DISPLAY_EVERY_N_FRAMES = 1;
 
-    // Retrieval switches. Each enabled output may add CPU/GPU transfer cost, so keep
-    // these explicit and disable anything your application does not use.
     static constexpr bool RETRIEVE_LEFT_IMAGE = true;
     static constexpr bool RETRIEVE_RIGHT_IMAGE = true;
     static constexpr bool RETRIEVE_DEPTH_IMAGE_FOR_DISPLAY = true;
