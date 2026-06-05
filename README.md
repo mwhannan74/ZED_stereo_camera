@@ -4,12 +4,21 @@ Minimal Windows 11 C++ starter project for a Stereolabs ZED stereo camera.
 
 This project opens the first available ZED camera, runs the ZED SDK grab/depth loop, retrieves common image/depth outputs, and displays live OpenCV windows for quick validation and early application development.
 
+The code is split into:
+
+- `zed_opencv_bridge`: a small library that owns the ZED SDK objects and exposes selected camera outputs as OpenCV `cv::Mat` values.
+- `zed_stereo_camera`: a demo executable that uses the bridge library for camera data and keeps display, overlay, FPS, and keyboard handling logic in the app.
+
 The project is intentionally simple:
 
 ```text
 ZED_stereo_camera/
   CMakeLists.txt
+  include/
+    zed_opencv_camera.hpp
   local_paths.cmake
+  src/
+    zed_opencv_camera.cpp
   zed_stereo_camera_main.cpp
   README.md
 ```
@@ -31,9 +40,60 @@ Use this application as a working C++ starting point for:
 - Reading numeric depth at a pixel
 - Reading XYZ point-cloud data at a pixel
 - Computing Euclidean range from XYZ
-- Prototyping the camera interface for a larger application
+- Prototyping an OpenCV-facing camera interface for a larger application
 
-This is not intended to be a final production architecture. It is a compact, readable baseline that proves the camera, SDK, CUDA, OpenCV, and CMake setup all work together.
+This is not intended to be a final production architecture. It is a compact, readable baseline that proves the camera, SDK, CUDA, OpenCV, CMake setup, and library/executable boundary all work together.
+
+---
+
+## Project structure
+
+### Bridge library
+
+The bridge library target is:
+
+```text
+zed_opencv_bridge
+```
+
+Its public header is:
+
+```text
+include/zed_opencv_camera.hpp
+```
+
+This header intentionally includes OpenCV only. It exposes:
+
+- `zed_bridge::ZedCameraConfig`
+- `zed_bridge::ZedCameraInfo`
+- `zed_bridge::ZedFrame`
+- `zed_bridge::ZedOpenCvCamera`
+
+The implementation is:
+
+```text
+src/zed_opencv_camera.cpp
+```
+
+This file owns the ZED SDK dependency. It includes `sl/Camera.hpp`, opens the camera, retrieves ZED outputs, and converts `sl::Mat` buffers into OpenCV `cv::Mat` views.
+
+The `cv::Mat` values in `ZedFrame` reference bridge-owned buffers. They remain valid until the next successful `grab()` call or until the camera closes. Use `clone()` if another project needs to store a frame longer than that.
+
+### Demo executable
+
+The demo executable target is:
+
+```text
+zed_stereo_camera
+```
+
+Its source file is:
+
+```text
+zed_stereo_camera_main.cpp
+```
+
+The demo app includes only the bridge header and OpenCV display headers. It does not include ZED or CUDA headers directly.
 
 ---
 
@@ -257,6 +317,7 @@ cmake --build build --config RelWithDebInfo
 Expected output includes:
 
 ```text
+zed_opencv_bridge.vcxproj -> ...\build\RelWithDebInfo\zed_opencv_bridge.lib
 zed_stereo_camera.vcxproj -> ...\build\bin\RelWithDebInfo\zed_stereo_camera.exe
 ```
 
@@ -360,7 +421,7 @@ This is the current known-good setup for reliable header navigation in VS Code.
 
 ## What the code retrieves
 
-The application can retrieve these ZED SDK outputs.
+The bridge library can retrieve these ZED SDK outputs and expose them as OpenCV matrices in `zed_bridge::ZedFrame`.
 
 ### `VIEW::LEFT`
 
@@ -441,7 +502,7 @@ MEASURE::DEPTH_U16_MM
 
 ## User-editable settings
 
-Camera and processing settings are near the top of:
+Demo camera and processing settings are near the top of:
 
 ```text
 zed_stereo_camera_main.cpp
@@ -459,8 +520,6 @@ Key settings:
 CAMERA_RESOLUTION
 CAMERA_FPS
 DEPTH_MODE
-COORDINATE_UNITS
-COORDINATE_SYSTEM
 DEPTH_MINIMUM_DISTANCE
 DEPTH_MAXIMUM_DISTANCE
 CONFIDENCE_THRESHOLD
@@ -483,6 +542,32 @@ RETRIEVE_DISPARITY_F32
 RETRIEVE_NORMALS_F32
 RETRIEVE_DEPTH_U16_MM
 ```
+
+These settings are copied into `zed_bridge::ZedCameraConfig` before opening the camera. The bridge currently uses millimeters and image coordinates internally.
+
+---
+
+## Using the bridge from another CMake target
+
+A second executable in this CMake project can consume the bridge without including ZED headers:
+
+```cmake
+add_executable(my_consumer
+    my_consumer_main.cpp
+)
+
+target_link_libraries(my_consumer PRIVATE
+    zed_opencv_bridge
+)
+```
+
+Consumer code should include:
+
+```cpp
+#include "zed_opencv_camera.hpp"
+```
+
+The consumer still has a runtime dependency on ZED/CUDA because `zed_opencv_bridge` calls into the ZED SDK internally. The useful separation is that ZED/CUDA types and headers stay out of consumer code.
 
 ---
 

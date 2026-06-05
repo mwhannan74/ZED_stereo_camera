@@ -41,29 +41,45 @@ find_package(ZED REQUIRED)
 find_package(CUDA ${ZED_CUDA_VERSION} REQUIRED)
 
 # ------------------------------------------------------------
-# Executable
+# ZED -> OpenCV bridge library
 # ------------------------------------------------------------
-add_executable(zed_stereo_camera
-    zed_stereo_camera_main.cpp
+add_library(zed_opencv_bridge
+    src/zed_opencv_camera.cpp
 )
 
-target_include_directories(zed_stereo_camera PRIVATE
-    ${ZED_INCLUDE_DIRS}
-    ${CUDA_INCLUDE_DIRS}
-    ${ZED_APP_OPENCV_INCLUDE_DIRS}
+target_include_directories(zed_opencv_bridge
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        ${ZED_APP_OPENCV_INCLUDE_DIRS}
+    PRIVATE
+        ${ZED_INCLUDE_DIRS}
+        ${CUDA_INCLUDE_DIRS}
 )
 
-target_link_directories(zed_stereo_camera PRIVATE
+target_link_directories(zed_opencv_bridge PRIVATE
     ${ZED_LIBRARY_DIR}
     ${CUDA_LIBRARY_DIRS}
     ${ZED_APP_OPENCV_LIBRARY_DIRS}
 )
 
+target_link_libraries(zed_opencv_bridge
+    PUBLIC
+        ${ZED_APP_OPENCV_LIBS}
+    PRIVATE
+        ${ZED_LIBRARIES}
+        ${CUDA_CUDA_LIBRARY}
+        ${CUDA_CUDART_LIBRARY}
+)
+
+# ------------------------------------------------------------
+# Demo executable
+# ------------------------------------------------------------
+add_executable(zed_stereo_camera
+    zed_stereo_camera_main.cpp
+)
+
 target_link_libraries(zed_stereo_camera PRIVATE
-    ${ZED_LIBRARIES}
-    ${CUDA_CUDA_LIBRARY}
-    ${CUDA_CUDART_LIBRARY}
-    ${ZED_APP_OPENCV_LIBS}
+    zed_opencv_bridge
 )
 
 set_target_properties(zed_stereo_camera PROPERTIES

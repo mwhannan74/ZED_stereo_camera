@@ -1,39 +1,13 @@
 /*
-    zed_stereo_camera_main.cpp
+    Demo executable for the ZED OpenCV bridge.
 
-    Minimal ZED 2 / ZED 2i C++ starter application for Windows + VS Code.
-
-    What this does:
-      1. Opens the first available ZED camera.
-      2. Runs the camera in a continuous grab loop.
-      3. Enables SDK depth processing.
-      4. Retrieves common ZED outputs:
-           - Left image for display / image processing
-           - Right image for display / stereo debugging
-           - 8-bit depth visualization image for display only
-           - 32-bit float depth map for numeric depth in millimeters
-           - 32-bit float confidence map
-           - 32-bit float XYZRGBA point cloud
-           - Optional disparity, normals, and uint16 depth
-      5. Displays live OpenCV windows.
-      6. Prints / overlays the center-pixel depth, confidence, XYZ, and range.
-
-    Notes:
-      - This file intentionally uses constants near the top instead of CLI arguments.
-      - For maximum frame rate, retrieve only the outputs your application actually needs.
-      - OpenCV display and CPU retrieval of large point clouds can reduce frame rate.
-      - Press ESC or Q in an OpenCV window to exit.
-
-    Quick glossary (ZED SDK terms used in this file):
-      - sl::Mat: ZED SDK image/measure container (similar role to cv::Mat in OpenCV).
-      - VIEW: image-like outputs mainly for visualization (LEFT, RIGHT, DEPTH display).
-      - MEASURE: numeric outputs for computation (DEPTH, CONFIDENCE, XYZRGBA, etc.).
-      - XYZRGBA: per-pixel 3D point (X, Y, Z) plus packed color information.
+    The ZED SDK dependency is intentionally isolated in zed_opencv_bridge.
+    This file consumes camera output as cv::Mat values, displays selected
+    images, and overlays simple center-pixel measurements.
 */
 
-#include <sl/Camera.hpp>
+#include "zed_opencv_camera.hpp"
 
-#include <opencv2/core.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 
@@ -43,141 +17,60 @@
 #include <iostream>
 #include <limits>
 #include <sstream>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
-// -----------------------------
-// User-editable camera settings
-// -----------------------------
 namespace user_settings
 {
 
-    // ZED 2 practical starting points:
-    //   - HD720 @ 60 FPS: good first choice for higher frame rate.
-    //   - HD1080 @ 30 FPS: better image detail, lower frame rate.
-    //   - VGA   @ 100 FPS: highest camera rate, lower image/depth resolution.
-    static constexpr sl::RESOLUTION CAMERA_RESOLUTION = sl::RESOLUTION::HD720;
-    static constexpr int CAMERA_FPS = 60;
+static constexpr zed_bridge::CameraResolution CAMERA_RESOLUTION = zed_bridge::CameraResolution::HD720;
+static constexpr int CAMERA_FPS = 60;
+static constexpr zed_bridge::DepthMode DEPTH_MODE = zed_bridge::DepthMode::NeuralLight;
 
-    // Depth mode tradeoff:
-    //   - NEURAL_LIGHT: fastest neural mode; good for first real-time prototype.
-    //   - NEURAL:       default balanced neural mode.
-    //   - NEURAL_PLUS:  higher quality, heavier GPU load.
-    // Older PERFORMANCE / QUALITY / ULTRA modes exist but are deprecated in recent SDKs.
-    static constexpr sl::DEPTH_MODE DEPTH_MODE = sl::DEPTH_MODE::NEURAL_LIGHT;
+static constexpr float DEPTH_MINIMUM_DISTANCE = 300.0f;
+static constexpr float DEPTH_MAXIMUM_DISTANCE = 12000.0f;
+static constexpr int CONFIDENCE_THRESHOLD = 95;
+static constexpr int TEXTURE_CONFIDENCE_THRESHOLD = 100;
+static constexpr bool ENABLE_DEPTH_FILL_MODE = false;
 
-    // Units for depth map, point cloud, tracking, etc.
-    // MILLIMETER is convenient for inspection/metrology prototypes.
-    static constexpr sl::UNIT COORDINATE_UNITS = sl::UNIT::MILLIMETER;
+static constexpr double DISPLAY_SCALE = 1.0;
+static constexpr int DISPLAY_EVERY_N_FRAMES = 1;
 
-    // IMAGE coordinate system is intuitive when working from image pixels:
-    //   X right, Y down, Z forward from the left camera.
-    static constexpr sl::COORDINATE_SYSTEM COORDINATE_SYSTEM = sl::COORDINATE_SYSTEM::IMAGE;
-
-    // Depth range clamp. Values use COORDINATE_UNITS above.
-    // Set <= 0 to let the SDK use camera defaults.
-    static constexpr float DEPTH_MINIMUM_DISTANCE = 300.0f;   // 0.3 m
-    static constexpr float DEPTH_MAXIMUM_DISTANCE = 12000.0f; // 12 m
-
-    // Runtime confidence filtering.
-    // Confidence values are in [1,100]; lower is better. The threshold rejects less-trusted pixels.
-    // Default SDK threshold is 95. Lower values reject more pixels near edges / low-texture areas.
-    static constexpr int CONFIDENCE_THRESHOLD = 95;
-    static constexpr int TEXTURE_CONFIDENCE_THRESHOLD = 100;
-
-    // Fill mode completes holes in the depth map, but it can hide invalid pixels.
-    // Keep false for measurement/debugging. Consider true only for display-oriented applications.
-    static constexpr bool ENABLE_DEPTH_FILL_MODE = false;
-
-    // Display scaling. Keep 1.0 for full-size windows; use 0.5 if display becomes a bottleneck.
-    static constexpr double DISPLAY_SCALE = 1.0;
-
-    // Display every frame. Increase to 2, 3, etc. if OpenCV display limits frame rate.
-    static constexpr int DISPLAY_EVERY_N_FRAMES = 1;
-
-    // Output retrieval switches.
-    // Keep these explicit so you can remove CPU transfers you do not need.
-    static constexpr bool RETRIEVE_LEFT_IMAGE = true;
-    static constexpr bool RETRIEVE_RIGHT_IMAGE = true;
-    static constexpr bool RETRIEVE_DEPTH_IMAGE_FOR_DISPLAY = true; // VIEW::DEPTH, 8-bit display only
-    static constexpr bool RETRIEVE_DEPTH_MAP_F32 = true;           // MEASURE::DEPTH, numeric Z depth
-    static constexpr bool RETRIEVE_CONFIDENCE_MAP_F32 = true;      // MEASURE::CONFIDENCE
-    static constexpr bool RETRIEVE_POINT_CLOUD_XYZRGBA = true;     // MEASURE::XYZRGBA
-
-    // Optional diagnostic outputs. These increase CPU/GPU transfer and display cost.
-    static constexpr bool RETRIEVE_DISPARITY_F32 = false; // MEASURE::DISPARITY
-    static constexpr bool RETRIEVE_NORMALS_F32 = false;   // MEASURE::NORMALS
-    static constexpr bool RETRIEVE_DEPTH_U16_MM = false;  // MEASURE::DEPTH_U16_MM
+static constexpr bool RETRIEVE_LEFT_IMAGE = true;
+static constexpr bool RETRIEVE_RIGHT_IMAGE = true;
+static constexpr bool RETRIEVE_DEPTH_IMAGE_FOR_DISPLAY = true;
+static constexpr bool RETRIEVE_DEPTH_MAP_F32 = true;
+static constexpr bool RETRIEVE_CONFIDENCE_MAP_F32 = true;
+static constexpr bool RETRIEVE_POINT_CLOUD_XYZRGBA = true;
+static constexpr bool RETRIEVE_DISPARITY_F32 = false;
+static constexpr bool RETRIEVE_NORMALS_F32 = false;
+static constexpr bool RETRIEVE_DEPTH_U16_MM = false;
 
 } // namespace user_settings
 
-// -----------------------------
-// Helper utilities
-// -----------------------------
-
-/**
- * @brief Build an OpenCV matrix view over a ZED SDK matrix.
- * @param input Source ZED matrix in CPU memory.
- * @return cv::Mat header that references the same pixel buffer (no copy).
- * @throws std::runtime_error if the ZED matrix type is not supported.
- *
- * @note The returned `cv::Mat` shares memory with `input`. Keep `input` alive
- * while using the returned matrix.
- * @note Writing to the returned `cv::Mat` also writes into the same underlying
- * ZED buffer for that frame because no copy is made.
- */
-static cv::Mat slMatToCvMat(sl::Mat &input)
+static zed_bridge::ZedCameraConfig makeCameraConfig()
 {
-    int cv_type = -1;
-
-    switch (input.getDataType())
-    {
-    case sl::MAT_TYPE::F32_C1:
-        cv_type = CV_32FC1;
-        break;
-    case sl::MAT_TYPE::F32_C2:
-        cv_type = CV_32FC2;
-        break;
-    case sl::MAT_TYPE::F32_C3:
-        cv_type = CV_32FC3;
-        break;
-    case sl::MAT_TYPE::F32_C4:
-        cv_type = CV_32FC4;
-        break;
-    case sl::MAT_TYPE::U8_C1:
-        cv_type = CV_8UC1;
-        break;
-    case sl::MAT_TYPE::U8_C2:
-        cv_type = CV_8UC2;
-        break;
-    case sl::MAT_TYPE::U8_C3:
-        cv_type = CV_8UC3;
-        break;
-    case sl::MAT_TYPE::U8_C4:
-        cv_type = CV_8UC4;
-        break;
-    case sl::MAT_TYPE::U16_C1:
-        cv_type = CV_16UC1;
-        break;
-    default:
-        throw std::runtime_error("Unsupported sl::Mat type for OpenCV conversion.");
-    }
-
-    return cv::Mat(
-        static_cast<int>(input.getHeight()),
-        static_cast<int>(input.getWidth()),
-        cv_type,
-        input.getPtr<sl::uchar1>(sl::MEM::CPU),
-        input.getStepBytes(sl::MEM::CPU));
+    zed_bridge::ZedCameraConfig config;
+    config.resolution = user_settings::CAMERA_RESOLUTION;
+    config.fps = user_settings::CAMERA_FPS;
+    config.depth_mode = user_settings::DEPTH_MODE;
+    config.depth_minimum_distance_mm = user_settings::DEPTH_MINIMUM_DISTANCE;
+    config.depth_maximum_distance_mm = user_settings::DEPTH_MAXIMUM_DISTANCE;
+    config.confidence_threshold = user_settings::CONFIDENCE_THRESHOLD;
+    config.texture_confidence_threshold = user_settings::TEXTURE_CONFIDENCE_THRESHOLD;
+    config.enable_depth_fill_mode = user_settings::ENABLE_DEPTH_FILL_MODE;
+    config.retrieve_left_image = user_settings::RETRIEVE_LEFT_IMAGE;
+    config.retrieve_right_image = user_settings::RETRIEVE_RIGHT_IMAGE;
+    config.retrieve_depth_image_for_display = user_settings::RETRIEVE_DEPTH_IMAGE_FOR_DISPLAY;
+    config.retrieve_depth_map_f32 = user_settings::RETRIEVE_DEPTH_MAP_F32;
+    config.retrieve_confidence_map_f32 = user_settings::RETRIEVE_CONFIDENCE_MAP_F32;
+    config.retrieve_point_cloud_xyzrgba = user_settings::RETRIEVE_POINT_CLOUD_XYZRGBA;
+    config.retrieve_disparity_f32 = user_settings::RETRIEVE_DISPARITY_F32;
+    config.retrieve_normals_f32 = user_settings::RETRIEVE_NORMALS_F32;
+    config.retrieve_depth_u16_mm = user_settings::RETRIEVE_DEPTH_U16_MM;
+    return config;
 }
 
-/**
- * @brief Show an image in an OpenCV window, optionally scaled.
- * @param window_name Existing window name.
- * @param image Image to display.
- * @param scale Display scale factor (1.0 = original size).
- */
 static void showScaled(const std::string &window_name, const cv::Mat &image, double scale)
 {
     if (image.empty())
@@ -185,13 +78,11 @@ static void showScaled(const std::string &window_name, const cv::Mat &image, dou
         return;
     }
 
-    const int display_width = static_cast<int>(image.cols * scale);
-    const int display_height = static_cast<int>(image.rows * scale);
-
     cv::Mat display_image;
-
     if (scale > 0.0 && std::abs(scale - 1.0) > 1e-6)
     {
+        const int display_width = static_cast<int>(image.cols * scale);
+        const int display_height = static_cast<int>(image.rows * scale);
         cv::resize(image, display_image, cv::Size(display_width, display_height), 0.0, 0.0, cv::INTER_AREA);
     }
     else
@@ -199,16 +90,10 @@ static void showScaled(const std::string &window_name, const cv::Mat &image, dou
         display_image = image;
     }
 
-    // Force the OpenCV window to match the displayed image aspect ratio.
     cv::resizeWindow(window_name, display_image.cols, display_image.rows);
     cv::imshow(window_name, display_image);
 }
 
-/**
- * @brief Format a millimeter distance as a meter string.
- * @param millimeters Distance value in millimeters.
- * @return Text like "1.234 m" or "nan" if the input is not finite.
- */
 static std::string metersText(float millimeters)
 {
     if (!std::isfinite(millimeters))
@@ -221,17 +106,9 @@ static std::string metersText(float millimeters)
     return oss.str();
 }
 
-/**
- * @brief Lightweight application-side FPS estimator.
- *
- * Computes FPS over short time windows to reduce per-frame jitter.
- */
 class FpsMeter
 {
 public:
-    /**
-     * @brief Register one processed frame and update the rolling FPS estimate.
-     */
     void tick()
     {
         ++frame_count_;
@@ -246,10 +123,6 @@ public:
         }
     }
 
-    /**
-     * @brief Get the latest FPS estimate.
-     * @return Frames per second.
-     */
     double fps() const { return fps_; }
 
 private:
@@ -258,22 +131,57 @@ private:
     double fps_ = 0.0;
 };
 
-/**
- * @brief Draw a measurement overlay on the left camera image.
- * @param image Image to annotate in-place.
- * @param app_fps Current application FPS estimate.
- * @param depth_z_mm Center-pixel Z depth in millimeters.
- * @param confidence Center-pixel confidence value.
- * @param xyzrgba Center-pixel XYZRGBA point.
- * @param range_mm Center-pixel Euclidean range in millimeters.
- */
-static void drawOverlay(
-    cv::Mat &image,
-    double app_fps,
-    float depth_z_mm,
-    float confidence,
-    const sl::float4 &xyzrgba,
-    float range_mm)
+struct CenterMeasurement
+{
+    float depth_z_mm = std::numeric_limits<float>::quiet_NaN();
+    float confidence = std::numeric_limits<float>::quiet_NaN();
+    cv::Vec4f xyzrgba = {
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::quiet_NaN()};
+    float range_mm = std::numeric_limits<float>::quiet_NaN();
+};
+
+static CenterMeasurement sampleCenterMeasurement(const zed_bridge::ZedFrame &frame)
+{
+    CenterMeasurement measurement;
+
+    const cv::Mat &reference_image = !frame.left_bgra.empty() ? frame.left_bgra : frame.depth_mm_32f;
+    if (reference_image.empty())
+    {
+        return measurement;
+    }
+
+    const int center_x = reference_image.cols / 2;
+    const int center_y = reference_image.rows / 2;
+
+    if (!frame.depth_mm_32f.empty())
+    {
+        measurement.depth_z_mm = frame.depth_mm_32f.at<float>(center_y, center_x);
+    }
+    if (!frame.confidence_32f.empty())
+    {
+        measurement.confidence = frame.confidence_32f.at<float>(center_y, center_x);
+    }
+    if (!frame.point_cloud_xyzrgba_32f.empty())
+    {
+        measurement.xyzrgba = frame.point_cloud_xyzrgba_32f.at<cv::Vec4f>(center_y, center_x);
+        if (std::isfinite(measurement.xyzrgba[0]) &&
+            std::isfinite(measurement.xyzrgba[1]) &&
+            std::isfinite(measurement.xyzrgba[2]))
+        {
+            measurement.range_mm = std::sqrt(
+                measurement.xyzrgba[0] * measurement.xyzrgba[0] +
+                measurement.xyzrgba[1] * measurement.xyzrgba[1] +
+                measurement.xyzrgba[2] * measurement.xyzrgba[2]);
+        }
+    }
+
+    return measurement;
+}
+
+static void drawOverlay(cv::Mat &image, double app_fps, const CenterMeasurement &measurement)
 {
     const int x = image.cols / 2;
     const int y = image.rows / 2;
@@ -286,15 +194,15 @@ static void drawOverlay(
         oss << "App FPS: " << std::fixed << std::setprecision(1) << app_fps;
         lines.push_back(oss.str());
     }
-    lines.push_back("Center Z depth: " + metersText(depth_z_mm));
-    lines.push_back("Center range:   " + metersText(range_mm));
+    lines.push_back("Center Z depth: " + metersText(measurement.depth_z_mm));
+    lines.push_back("Center range:   " + metersText(measurement.range_mm));
 
     {
         std::ostringstream oss;
         oss << "Confidence:     ";
-        if (std::isfinite(confidence))
+        if (std::isfinite(measurement.confidence))
         {
-            oss << std::fixed << std::setprecision(1) << confidence << " / 100 (lower is better)";
+            oss << std::fixed << std::setprecision(1) << measurement.confidence << " / 100 (lower is better)";
         }
         else
         {
@@ -306,10 +214,14 @@ static void drawOverlay(
     {
         std::ostringstream oss;
         oss << "XYZ mm:         ";
-        if (std::isfinite(xyzrgba.x) && std::isfinite(xyzrgba.y) && std::isfinite(xyzrgba.z))
+        if (std::isfinite(measurement.xyzrgba[0]) &&
+            std::isfinite(measurement.xyzrgba[1]) &&
+            std::isfinite(measurement.xyzrgba[2]))
         {
             oss << std::fixed << std::setprecision(1)
-                << xyzrgba.x << ", " << xyzrgba.y << ", " << xyzrgba.z;
+                << measurement.xyzrgba[0] << ", "
+                << measurement.xyzrgba[1] << ", "
+                << measurement.xyzrgba[2];
         }
         else
         {
@@ -332,299 +244,126 @@ static void drawOverlay(
     }
 }
 
-/**
- * @brief Create OpenCV windows for the enabled output views.
- *
- * Windows are created only for retrieval flags enabled in `user_settings`.
- */
-static void createWindows()
+static void createWindows(const zed_bridge::ZedCameraConfig &config)
 {
-    if (user_settings::RETRIEVE_LEFT_IMAGE)
+    if (config.retrieve_left_image)
     {
         cv::namedWindow("ZED Left + Measurements", cv::WINDOW_NORMAL);
     }
-    if (user_settings::RETRIEVE_RIGHT_IMAGE)
+    if (config.retrieve_right_image)
     {
         cv::namedWindow("ZED Right", cv::WINDOW_NORMAL);
     }
-    if (user_settings::RETRIEVE_DEPTH_IMAGE_FOR_DISPLAY)
+    if (config.retrieve_depth_image_for_display)
     {
         cv::namedWindow("ZED Depth Display Only", cv::WINDOW_NORMAL);
     }
-    if (user_settings::RETRIEVE_CONFIDENCE_MAP_F32)
+    if (config.retrieve_confidence_map_f32)
     {
         cv::namedWindow("ZED Confidence Display", cv::WINDOW_NORMAL);
     }
 }
 
-/**
- * @brief Entry point for the ZED tutorial application.
- * @return 0 on clean shutdown, non-zero if camera open fails.
- *
- * Opens the camera, grabs frames, retrieves selected image/measure outputs,
- * displays windows, and exits on ESC/Q.
- *
- * Beginner extension points:
- * - Adjust `user_settings::CAMERA_RESOLUTION` and `CAMERA_FPS`.
- * - Disable unused retrieval flags to improve performance.
- * - Replace center-pixel sampling with your own region/object measurements.
- */
+static void printOptionalDiagnostics(const zed_bridge::ZedFrame &frame, uint64_t frame_index)
+{
+    if (!frame.disparity_32f.empty() && frame_index % 120 == 0)
+    {
+        const int center_x = frame.disparity_32f.cols / 2;
+        const int center_y = frame.disparity_32f.rows / 2;
+        std::cout << "Center disparity: " << frame.disparity_32f.at<float>(center_y, center_x) << "\n";
+    }
+
+    if (!frame.normals_xyzrgba_32f.empty() && frame_index % 120 == 0)
+    {
+        const int center_x = frame.normals_xyzrgba_32f.cols / 2;
+        const int center_y = frame.normals_xyzrgba_32f.rows / 2;
+        const cv::Vec4f center_normal = frame.normals_xyzrgba_32f.at<cv::Vec4f>(center_y, center_x);
+        std::cout << "Center normal XYZ: "
+                  << center_normal[0] << ", "
+                  << center_normal[1] << ", "
+                  << center_normal[2] << "\n";
+    }
+
+    if (!frame.depth_u16_mm.empty() && frame_index % 120 == 0)
+    {
+        const int center_x = frame.depth_u16_mm.cols / 2;
+        const int center_y = frame.depth_u16_mm.rows / 2;
+        std::cout << "Center depth U16 mm: " << frame.depth_u16_mm.at<unsigned short>(center_y, center_x) << "\n";
+    }
+}
+
 int main()
 {
-    using namespace user_settings;
-
     std::cout << "Starting ZED stereo camera prototype...\n";
     std::cout << "Press ESC or Q in an OpenCV window to exit.\n\n";
 
-    sl::Camera zed;
+    const zed_bridge::ZedCameraConfig config = makeCameraConfig();
+    zed_bridge::ZedOpenCvCamera camera(config);
 
-    // -----------------------------
-    // Configure camera before open()
-    // -----------------------------
-    // `InitParameters` are one-time startup settings.
-    // Think of these as "how the camera and SDK pipeline should be created."
-    sl::InitParameters init_params;
-
-    init_params.camera_resolution = CAMERA_RESOLUTION;
-    init_params.camera_fps = CAMERA_FPS;
-    init_params.depth_mode = DEPTH_MODE;
-    init_params.coordinate_units = COORDINATE_UNITS;
-    init_params.coordinate_system = COORDINATE_SYSTEM;
-    init_params.depth_minimum_distance = DEPTH_MINIMUM_DISTANCE;
-    init_params.depth_maximum_distance = DEPTH_MAXIMUM_DISTANCE;
-    init_params.sdk_verbose = 1;
-
-    // If USB is unstable and the camera briefly drops, allow SDK-side recovery attempts.
-    init_params.async_grab_camera_recovery = true;
-
-    // 0 means no SDK-side compute FPS cap. The camera FPS setting above remains the capture target.
-    init_params.grab_compute_capping_fps = 0;
-
-    const sl::ERROR_CODE open_status = zed.open(init_params);
-    if (open_status != sl::ERROR_CODE::SUCCESS)
+    std::string open_error;
+    if (!camera.open(&open_error))
     {
-        std::cerr << "ERROR: zed.open() failed: " << open_status << "\n";
+        std::cerr << "ERROR: " << open_error << "\n";
         return 1;
     }
 
-    const sl::CameraInformation camera_info = zed.getCameraInformation();
-    const sl::Resolution image_size = camera_info.camera_configuration.resolution;
-
+    const zed_bridge::ZedCameraInfo camera_info = camera.cameraInfo();
     std::cout << "Camera opened.\n";
     std::cout << "  Serial number: " << camera_info.serial_number << "\n";
-    std::cout << "  Resolution:    " << image_size.width << " x " << image_size.height << "\n";
-    std::cout << "  Target FPS:    " << CAMERA_FPS << "\n";
-    std::cout << "  Depth mode:    " << static_cast<int>(DEPTH_MODE) << "\n\n";
+    std::cout << "  Resolution:    " << camera_info.width << " x " << camera_info.height << "\n";
+    std::cout << "  Target FPS:    " << camera_info.target_fps << "\n\n";
 
-    // -----------------------------
-    // Configure per-frame processing
-    // -----------------------------
-    // `RuntimeParameters` are applied on each `grab()` call and can be changed while running.
-    sl::RuntimeParameters runtime_params;
-    runtime_params.enable_depth = true;
-    runtime_params.enable_fill_mode = ENABLE_DEPTH_FILL_MODE;
-    runtime_params.confidence_threshold = CONFIDENCE_THRESHOLD;
-    runtime_params.texture_confidence_threshold = TEXTURE_CONFIDENCE_THRESHOLD;
-    runtime_params.measure3D_reference_frame = sl::REFERENCE_FRAME::CAMERA;
-
-    // -----------------------------
-    // Allocate ZED output buffers
-    // -----------------------------
-    // This sample allocates once and reuses buffers every frame.
-    // CPU memory is used because OpenCV display and `getValue()` sampling happen on CPU.
-    // In production apps, retrieve only what you need to reduce transfer/processing cost.
-    sl::Mat left_image(image_size, sl::MAT_TYPE::U8_C4, sl::MEM::CPU);
-    sl::Mat right_image(image_size, sl::MAT_TYPE::U8_C4, sl::MEM::CPU);
-    sl::Mat depth_image_display(image_size, sl::MAT_TYPE::U8_C4, sl::MEM::CPU);
-
-    sl::Mat depth_map_f32(image_size, sl::MAT_TYPE::F32_C1, sl::MEM::CPU);
-    sl::Mat confidence_map_f32(image_size, sl::MAT_TYPE::F32_C1, sl::MEM::CPU);
-    sl::Mat point_cloud_xyzrgba(image_size, sl::MAT_TYPE::F32_C4, sl::MEM::CPU);
-    sl::Mat disparity_f32(image_size, sl::MAT_TYPE::F32_C1, sl::MEM::CPU);
-    sl::Mat normals_f32(image_size, sl::MAT_TYPE::F32_C4, sl::MEM::CPU);
-    sl::Mat depth_u16_mm(image_size, sl::MAT_TYPE::U16_C1, sl::MEM::CPU);
-
-    createWindows();
+    createWindows(config);
 
     FpsMeter fps_meter;
+    zed_bridge::ZedFrame frame;
     uint64_t frame_index = 0;
 
-    // -----------------------------
-    // Main camera loop
-    // -----------------------------
-    // Per-frame flow:
-    //   1) grab() acquires and processes the next frame.
-    //   2) retrieveImage()/retrieveMeasure() copy selected outputs to CPU buffers.
-    //   3) getValue() samples example pixels for tutorial measurements.
-    //   4) OpenCV display renders optional windows and handles key input.
     while (true)
     {
-        // grab() blocks until a new frame is available, then runs image/depth processing.
-        const sl::ERROR_CODE grab_status = zed.grab(runtime_params);
-        if (grab_status != sl::ERROR_CODE::SUCCESS)
+        if (!camera.grab(frame))
         {
-            // TIMEOUT / CAMERA_REBOOTING can happen during transient USB issues.
-            // For a simple prototype, skip this cycle and keep trying.
             continue;
         }
 
         fps_meter.tick();
         ++frame_index;
 
-        // `retrieveImage()` returns image-style outputs intended for visualization.
-        // Examples: LEFT/RIGHT camera images and the colorized depth view.
-        if (RETRIEVE_LEFT_IMAGE)
-        {
-            zed.retrieveImage(left_image, sl::VIEW::LEFT, sl::MEM::CPU);
-        }
-        if (RETRIEVE_RIGHT_IMAGE)
-        {
-            zed.retrieveImage(right_image, sl::VIEW::RIGHT, sl::MEM::CPU);
-        }
-        if (RETRIEVE_DEPTH_IMAGE_FOR_DISPLAY)
-        {
-            // This is an 8-bit normalized visualization. Do not use it for measurement.
-            zed.retrieveImage(depth_image_display, sl::VIEW::DEPTH, sl::MEM::CPU);
-        }
+        const CenterMeasurement measurement = sampleCenterMeasurement(frame);
+        printOptionalDiagnostics(frame, frame_index);
 
-        // `retrieveMeasure()` returns numeric data products for real computation.
-        // Examples: metric depth, confidence, disparity, normals, point clouds.
-        if (RETRIEVE_DEPTH_MAP_F32)
+        if ((frame_index % user_settings::DISPLAY_EVERY_N_FRAMES) == 0)
         {
-            zed.retrieveMeasure(depth_map_f32, sl::MEASURE::DEPTH, sl::MEM::CPU);
-        }
-        if (RETRIEVE_CONFIDENCE_MAP_F32)
-        {
-            zed.retrieveMeasure(confidence_map_f32, sl::MEASURE::CONFIDENCE, sl::MEM::CPU);
-        }
-        if (RETRIEVE_POINT_CLOUD_XYZRGBA)
-        {
-            zed.retrieveMeasure(point_cloud_xyzrgba, sl::MEASURE::XYZRGBA, sl::MEM::CPU);
-        }
-        if (RETRIEVE_DISPARITY_F32)
-        {
-            zed.retrieveMeasure(disparity_f32, sl::MEASURE::DISPARITY, sl::MEM::CPU);
-        }
-        if (RETRIEVE_NORMALS_F32)
-        {
-            zed.retrieveMeasure(normals_f32, sl::MEASURE::NORMALS, sl::MEM::CPU);
-        }
-        if (RETRIEVE_DEPTH_U16_MM)
-        {
-            zed.retrieveMeasure(depth_u16_mm, sl::MEASURE::DEPTH_U16_MM, sl::MEM::CPU);
-        }
-
-        // Sample one fixed pixel (the image center) as a quick sanity check.
-        // This is tutorial logic, not a robust measurement strategy.
-        const int center_x = static_cast<int>(image_size.width / 2);
-        const int center_y = static_cast<int>(image_size.height / 2);
-
-        float center_depth_z_mm = std::numeric_limits<float>::quiet_NaN();
-        float center_confidence = std::numeric_limits<float>::quiet_NaN();
-        sl::float4 center_xyzrgba = {
-            std::numeric_limits<float>::quiet_NaN(),
-            std::numeric_limits<float>::quiet_NaN(),
-            std::numeric_limits<float>::quiet_NaN(),
-            std::numeric_limits<float>::quiet_NaN()};
-        float center_range_mm = std::numeric_limits<float>::quiet_NaN();
-
-        if (RETRIEVE_DEPTH_MAP_F32)
-        {
-            depth_map_f32.getValue(center_x, center_y, &center_depth_z_mm);
-        }
-        if (RETRIEVE_CONFIDENCE_MAP_F32)
-        {
-            confidence_map_f32.getValue(center_x, center_y, &center_confidence);
-        }
-        if (RETRIEVE_POINT_CLOUD_XYZRGBA)
-        {
-            point_cloud_xyzrgba.getValue(center_x, center_y, &center_xyzrgba);
-            if (std::isfinite(center_xyzrgba.x) &&
-                std::isfinite(center_xyzrgba.y) &&
-                std::isfinite(center_xyzrgba.z))
+            if (!frame.left_bgra.empty())
             {
-                center_range_mm = std::sqrt(
-                    center_xyzrgba.x * center_xyzrgba.x +
-                    center_xyzrgba.y * center_xyzrgba.y +
-                    center_xyzrgba.z * center_xyzrgba.z);
+                drawOverlay(frame.left_bgra, fps_meter.fps(), measurement);
+                showScaled("ZED Left + Measurements", frame.left_bgra, user_settings::DISPLAY_SCALE);
             }
-        }
-
-        // Optional diagnostics: print less-frequent snapshots to keep console noise low.
-        if (RETRIEVE_DISPARITY_F32 && frame_index % 120 == 0)
-        {
-            float center_disparity = std::numeric_limits<float>::quiet_NaN();
-            disparity_f32.getValue(center_x, center_y, &center_disparity);
-            std::cout << "Center disparity: " << center_disparity << "\n";
-        }
-
-        if (RETRIEVE_NORMALS_F32 && frame_index % 120 == 0)
-        {
-            sl::float4 center_normal;
-            normals_f32.getValue(center_x, center_y, &center_normal);
-            std::cout << "Center normal XYZ: "
-                      << center_normal.x << ", "
-                      << center_normal.y << ", "
-                      << center_normal.z << "\n";
-        }
-
-        if (RETRIEVE_DEPTH_U16_MM && frame_index % 120 == 0)
-        {
-            unsigned short center_depth_u16 = 0;
-            depth_u16_mm.getValue(center_x, center_y, &center_depth_u16);
-            std::cout << "Center depth U16 mm: " << center_depth_u16 << "\n";
-        }
-
-        // Display path.
-        // Multiple full-resolution windows can become the bottleneck before camera/depth does.
-        if ((frame_index % DISPLAY_EVERY_N_FRAMES) == 0)
-        {
-            if (RETRIEVE_LEFT_IMAGE)
+            if (!frame.right_bgra.empty())
             {
-                cv::Mat left_cv = slMatToCvMat(left_image);
-                drawOverlay(left_cv, fps_meter.fps(), center_depth_z_mm, center_confidence, center_xyzrgba, center_range_mm);
-                showScaled("ZED Left + Measurements", left_cv, DISPLAY_SCALE);
+                showScaled("ZED Right", frame.right_bgra, user_settings::DISPLAY_SCALE);
             }
-
-            if (RETRIEVE_RIGHT_IMAGE)
+            if (!frame.depth_display_bgra.empty())
             {
-                cv::Mat right_cv = slMatToCvMat(right_image);
-                showScaled("ZED Right", right_cv, DISPLAY_SCALE);
+                showScaled("ZED Depth Display Only", frame.depth_display_bgra, user_settings::DISPLAY_SCALE);
             }
-
-            if (RETRIEVE_DEPTH_IMAGE_FOR_DISPLAY)
+            if (!frame.confidence_32f.empty())
             {
-                cv::Mat depth_display_cv = slMatToCvMat(depth_image_display);
-                showScaled("ZED Depth Display Only", depth_display_cv, DISPLAY_SCALE);
-            }
-
-            if (RETRIEVE_CONFIDENCE_MAP_F32)
-            {
-                cv::Mat confidence_32f = slMatToCvMat(confidence_map_f32);
                 cv::Mat confidence_8u;
-                confidence_32f.convertTo(confidence_8u, CV_8UC1, 255.0 / 100.0);
-                showScaled("ZED Confidence Display", confidence_8u, DISPLAY_SCALE);
-            }
-
-            const int key = cv::waitKey(1);
-            if (key == 27 || key == 'q' || key == 'Q')
-            {
-                break;
+                frame.confidence_32f.convertTo(confidence_8u, CV_8UC1, 255.0 / 100.0);
+                showScaled("ZED Confidence Display", confidence_8u, user_settings::DISPLAY_SCALE);
             }
         }
-        else
+
+        const int key = cv::waitKey(1);
+        if (key == 27 || key == 'q' || key == 'Q')
         {
-            // waitKey is still needed occasionally for OpenCV window event processing.
-            const int key = cv::waitKey(1);
-            if (key == 27 || key == 'q' || key == 'Q')
-            {
-                break;
-            }
+            break;
         }
     }
 
     std::cout << "Closing camera...\n";
-    zed.close();
+    camera.close();
     cv::destroyAllWindows();
 
     return 0;
