@@ -104,6 +104,19 @@ This file owns the ZED SDK dependency. It includes `sl/Camera.hpp`, opens the ca
 
 The `cv::Mat` values in `ZedFrame` reference bridge-owned buffers. They remain valid until the next successful `grab()` call or until the camera closes. Use `clone()` if another project needs to store a frame longer than that.
 
+### Coordinate convention
+
+The bridge intentionally opens the ZED SDK with `sl::COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP_X_FWD` instead of the SDK default `IMAGE` coordinate system.
+
+This means the bridge uses:
+
+- World frame: ENU (`+X` east, `+Y` north, `+Z` up)
+- Body/camera frame: FLU (`+X` forward, `+Y` left, `+Z` up)
+
+This affects 3D outputs such as point-cloud XYZ values, normal vectors, IMU orientation, and any future pose/tracking data. OpenCV images are unchanged: they are still ordinary row/column image matrices.
+
+`depth_mm_32f` is still a scalar depth map in millimeters. `point_cloud_xyzrgba_32f` is the output where `X`, `Y`, and `Z` are interpreted as forward, left, and up.
+
 ### `zed_stereo_camera`
 
 The demo executable target is:

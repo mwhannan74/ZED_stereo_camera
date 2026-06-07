@@ -152,9 +152,10 @@ namespace zed_bridge
     /**
      * @brief Roll, pitch, yaw, and heading angles in degrees.
      *
-     * World frame is ENU: +X east, +Y north, +Z up. Body frame is FLU:
-     * +X forward, +Y left, +Z up. Yaw is measured CCW from east about +Z
-     * in [-180, 180]. Heading is measured clockwise from north in [0, 360).
+     * World frame is ENU: +X east, +Y north, +Z up. 
+     * Body frame is FLU: +X forward, +Y left, +Z up. 
+     * Yaw is measured CCW from east about +Z in [-180, 180]. 
+     * Heading is measured clockwise from north in [0, 360).
      */
     struct OrientationAngles
     {
@@ -165,9 +166,29 @@ namespace zed_bridge
     };
 
     /**
+     * @brief Coordinate convention used by all bridge 3D outputs.
+     *
+     * The bridge opens the ZED SDK with
+     * `sl::COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP_X_FWD`.
+     *
+     * This changes 3D outputs from the SDK default image frame
+     * (`+X` right, `+Y` down, `+Z` forward) to:
+     *
+     * - World frame: ENU (`+X` east, `+Y` north, `+Z` up)
+     * - Body/camera frame: FLU (`+X` forward, `+Y` left, `+Z` up)
+     *
+     * Affected outputs include point-cloud XYZ values, normal vectors, IMU
+     * orientation, and any future pose/tracking values. OpenCV images remain
+     * ordinary image matrices indexed by row/column.
+     */
+
+    /**
      * @brief Frame-synchronized IMU sample from the ZED camera.
      *
-     * Linear acceleration is in m/s^2. Angular velocity is in deg/s.
+     * Linear acceleration is in m/s^2 and angular velocity is in deg/s, both
+     * expressed in the bridge's X-forward, Y-left, Z-up camera/body frame.
+     * Orientation is the SDK quaternion in xyzw order for the selected
+     * coordinate system.
      */
     struct ImuSample
     {
@@ -187,6 +208,10 @@ namespace zed_bridge
      *
      * Outputs disabled in ZedCameraConfig are left empty. Check cv::Mat::empty()
      * before reading a field unless the matching retrieval flag is known to be true.
+     *
+     * `point_cloud_xyzrgba_32f` and `normals_xyzrgba_32f` use the bridge 3D
+     * convention: `+X` forward, `+Y` left, and `+Z` up. `depth_mm_32f` is still
+     * a scalar depth map in millimeters, not a 3D vector.
      */
     struct ZedFrame
     {
