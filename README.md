@@ -62,8 +62,9 @@ Use this project as a working C++ starting point for:
 - Viewing an 8-bit depth visualization
 - Viewing the confidence map
 - Reading numeric depth at a pixel
-- Reading XYZ point-cloud data at a pixel
+- Reading XYZ point-cloud data at a pixel in X-forward, Y-left, Z-up coordinates
 - Computing Euclidean range from XYZ
+- Reading frame-synchronized ZED 2 IMU acceleration, gyro, quaternion, roll/pitch/yaw, and heading values
 - Prototyping an OpenCV-facing camera interface for a larger application
 
 This is not a final production architecture. It is a compact baseline that proves the camera, SDK, CUDA, OpenCV, CMake setup, and library/executable boundary all work together.
@@ -369,10 +370,11 @@ Expected behavior:
   - `ZED Confidence Display`
 - The left image shows an overlay with:
   - Application FPS
-  - Center-pixel Z depth
+  - Center-pixel depth
   - Center-pixel Euclidean range
   - Center-pixel confidence
-  - Center-pixel XYZ value
+  - Center-pixel XYZ value in X-forward, Y-left, Z-up coordinates
+  - Frame-synchronized IMU acceleration, gyro, quaternion, roll/pitch/yaw, and heading values
 
 Exit by clicking an OpenCV window and pressing:
 
@@ -505,6 +507,26 @@ Lower confidence values are better.
 
 32-bit floating-point point cloud with color.
 
+The bridge opens the SDK in `RIGHT_HANDED_Z_UP_X_FWD`, so point-cloud axes are:
+
+- `X`: forward from the camera
+- `Y`: left from the camera
+- `Z`: up from the camera
+
+The bridge treats orientation as:
+
+- World frame: ENU (`+X` east, `+Y` north, `+Z` up)
+- Body/camera frame: FLU (`+X` forward, `+Y` left, `+Z` up)
+- `yaw_enu_deg`: measured from world `+X` east, positive counter-clockwise about `+Z`, normalized to `[-180, 180]`
+- `heading_deg`: measured from north, positive clockwise, normalized to `[0, 360)`
+
+The yaw/heading conversion is:
+
+```text
+heading_deg = normalize_360(90.0 - yaw_enu_deg)
+yaw_enu_deg = normalize_180(90.0 - heading_deg)
+```
+
 Used for:
 
 - 3D point lookup at each pixel
@@ -569,7 +591,7 @@ RETRIEVE_NORMALS_F32
 RETRIEVE_DEPTH_U16_MM
 ```
 
-These settings are copied into `zed_bridge::ZedCameraConfig` before opening the camera. The bridge currently uses millimeters and image coordinates internally.
+These settings are copied into `zed_bridge::ZedCameraConfig` before opening the camera. The bridge currently uses millimeters and `RIGHT_HANDED_Z_UP_X_FWD` coordinates internally.
 
 ---
 
@@ -642,7 +664,7 @@ static constexpr bool RETRIEVE_CONFIDENCE_MAP_F32 = true;
 static constexpr bool RETRIEVE_POINT_CLOUD_XYZRGBA = false;
 ```
 
-Enable the point cloud only when XYZ/range values are needed.
+Enable the point cloud only when XYZ/range values are needed. XYZ values use X-forward, Y-left, Z-up coordinates.
 
 Display can also become the bottleneck. If that happens, increase:
 

@@ -131,6 +131,49 @@ static std::string metersText(float millimeters)
 }
 
 /**
+ * @brief Formats one floating-point value with stable overlay width.
+ */
+static std::string fixedValueText(double value, int width, int precision)
+{
+    std::ostringstream oss;
+    oss << std::right << std::setw(width);
+    if (std::isfinite(value))
+    {
+        oss << std::showpos << std::fixed << std::setprecision(precision) << value;
+    }
+    else
+    {
+        oss << "nan";
+    }
+    return oss.str();
+}
+
+/**
+ * @brief Formats a three-component vector with fixed-width fields.
+ */
+static std::string vec3Text(const zed_bridge::Vec3f &value, int width = 8, int precision = 2)
+{
+    std::ostringstream oss;
+    oss << fixedValueText(value.x, width, precision) << ", "
+        << fixedValueText(value.y, width, precision) << ", "
+        << fixedValueText(value.z, width, precision);
+    return oss.str();
+}
+
+/**
+ * @brief Formats a four-component vector with fixed-width fields.
+ */
+static std::string vec4Text(const zed_bridge::Vec4d &value, int width = 8, int precision = 4)
+{
+    std::ostringstream oss;
+    oss << fixedValueText(value.x, width, precision) << ", "
+        << fixedValueText(value.y, width, precision) << ", "
+        << fixedValueText(value.z, width, precision) << ", "
+        << fixedValueText(value.w, width, precision);
+    return oss.str();
+}
+
+/**
  * @brief Lightweight application-side FPS estimator.
  */
 class FpsMeter
@@ -169,9 +212,9 @@ private:
  */
 struct CenterMeasurement
 {
-    float depth_z_mm = std::numeric_limits<float>::quiet_NaN();
+    float depth_mm = std::numeric_limits<float>::quiet_NaN();
     float confidence = std::numeric_limits<float>::quiet_NaN();
-    cv::Vec4f xyzrgba = {
+    cv::Vec4f point_xyzrgba_mm = {
         std::numeric_limits<float>::quiet_NaN(),
         std::numeric_limits<float>::quiet_NaN(),
         std::numeric_limits<float>::quiet_NaN(),
@@ -202,7 +245,7 @@ static CenterMeasurement sampleCenterMeasurement(const zed_bridge::ZedFrame &fra
     if (!frame.depth_mm_32f.empty())
     {
         // OpenCV indexes matrices as row, column: at<T>(y, x).
-        measurement.depth_z_mm = frame.depth_mm_32f.at<float>(center_y, center_x);
+        measurement.depth_mm = frame.depth_mm_32f.at<float>(center_y, center_x);
     }
     if (!frame.confidence_32f.empty())
     {
@@ -211,16 +254,16 @@ static CenterMeasurement sampleCenterMeasurement(const zed_bridge::ZedFrame &fra
     if (!frame.point_cloud_xyzrgba_32f.empty())
     {
         // XYZRGBA is represented as a four-channel float matrix. X/Y/Z are in
-        // millimeters because the bridge configures the ZED SDK to use mm.
-        measurement.xyzrgba = frame.point_cloud_xyzrgba_32f.at<cv::Vec4f>(center_y, center_x);
-        if (std::isfinite(measurement.xyzrgba[0]) &&
-            std::isfinite(measurement.xyzrgba[1]) &&
-            std::isfinite(measurement.xyzrgba[2]))
+        // millimeters with X forward, Y left, and Z up.
+        measurement.point_xyzrgba_mm = frame.point_cloud_xyzrgba_32f.at<cv::Vec4f>(center_y, center_x);
+        if (std::isfinite(measurement.point_xyzrgba_mm[0]) &&
+            std::isfinite(measurement.point_xyzrgba_mm[1]) &&
+            std::isfinite(measurement.point_xyzrgba_mm[2]))
         {
             measurement.range_mm = std::sqrt(
-                measurement.xyzrgba[0] * measurement.xyzrgba[0] +
-                measurement.xyzrgba[1] * measurement.xyzrgba[1] +
-                measurement.xyzrgba[2] * measurement.xyzrgba[2]);
+                measurement.point_xyzrgba_mm[0] * measurement.point_xyzrgba_mm[0] +
+                measurement.point_xyzrgba_mm[1] * measurement.point_xyzrgba_mm[1] +
+                measurement.point_xyzrgba_mm[2] * measurement.point_xyzrgba_mm[2]);
         }
     }
 
@@ -232,8 +275,13 @@ static CenterMeasurement sampleCenterMeasurement(const zed_bridge::ZedFrame &fra
  * @param image Image to annotate in place.
  * @param app_fps Current application FPS estimate.
  * @param measurement Center-pixel values to display.
+ * @param extra_lines Additional overlay lines appended after measurements.
  */
-static void drawOverlay(cv::Mat &image, double app_fps, const CenterMeasurement &measurement)
+static void drawOverlay(
+    cv::Mat &image,
+    double app_fps,
+    const CenterMeasurement &measurement,
+    const std::vector<std::string> &extra_lines)
 {
     const int x = image.cols / 2;
     const int y = image.rows / 2;
@@ -246,7 +294,7 @@ static void drawOverlay(cv::Mat &image, double app_fps, const CenterMeasurement 
         oss << "App FPS: " << std::fixed << std::setprecision(1) << app_fps;
         lines.push_back(oss.str());
     }
-    lines.push_back("Center Z depth: " + metersText(measurement.depth_z_mm));
+    lines.push_back("Center depth:   " + metersText(measurement.depth_mm));
     lines.push_back("Center range:   " + metersText(measurement.range_mm));
 
     {
@@ -265,21 +313,26 @@ static void drawOverlay(cv::Mat &image, double app_fps, const CenterMeasurement 
 
     {
         std::ostringstream oss;
-        oss << "XYZ mm:         ";
-        if (std::isfinite(measurement.xyzrgba[0]) &&
-            std::isfinite(measurement.xyzrgba[1]) &&
-            std::isfinite(measurement.xyzrgba[2]))
+        oss << "XYZ mm FLU:     ";
+        if (std::isfinite(measurement.point_xyzrgba_mm[0]) &&
+            std::isfinite(measurement.point_xyzrgba_mm[1]) &&
+            std::isfinite(measurement.point_xyzrgba_mm[2]))
         {
             oss << std::fixed << std::setprecision(1)
-                << measurement.xyzrgba[0] << ", "
-                << measurement.xyzrgba[1] << ", "
-                << measurement.xyzrgba[2];
+                << measurement.point_xyzrgba_mm[0] << ", "
+                << measurement.point_xyzrgba_mm[1] << ", "
+                << measurement.point_xyzrgba_mm[2];
         }
         else
         {
             oss << "nan, nan, nan";
         }
         lines.push_back(oss.str());
+    }
+
+    for (const std::string &line : extra_lines)
+    {
+        lines.push_back(line);
     }
 
     const int base_x = 20;
@@ -296,6 +349,29 @@ static void drawOverlay(cv::Mat &image, double app_fps, const CenterMeasurement 
                     cv::FONT_HERSHEY_SIMPLEX, 0.65, cv::Scalar(255, 255, 255, 255), 1, cv::LINE_AA);
         base_y += line_height;
     }
+}
+
+/**
+ * @brief Builds overlay lines for the current frame's IMU sample.
+ */
+static std::vector<std::string> makeImuOverlayLines(const zed_bridge::ImuSample &imu)
+{
+    std::vector<std::string> lines;
+    if (!imu.available)
+    {
+        lines.push_back("IMU: unavailable");
+        return lines;
+    }
+
+    lines.push_back("IMU accel m/s^2: " + vec3Text(imu.linear_acceleration_mps2));
+    lines.push_back("IMU gyro deg/s:  " + vec3Text(imu.angular_velocity_dps));
+    lines.push_back("IMU quat xyzw:   " + vec4Text(imu.orientation_xyzw));
+    lines.push_back("IMU RPY ENU deg: " +
+                    fixedValueText(imu.orientation_angles_deg.roll_deg, 8, 2) + ", " +
+                    fixedValueText(imu.orientation_angles_deg.pitch_deg, 8, 2) + ", " +
+                    fixedValueText(imu.orientation_angles_deg.yaw_enu_deg, 8, 2));
+    lines.push_back("IMU heading deg: " + fixedValueText(imu.orientation_angles_deg.heading_deg, 8, 2));
+    return lines;
 }
 
 /**
@@ -341,7 +417,7 @@ static void printOptionalDiagnostics(const zed_bridge::ZedFrame &frame, uint64_t
         const int center_x = frame.normals_xyzrgba_32f.cols / 2;
         const int center_y = frame.normals_xyzrgba_32f.rows / 2;
         const cv::Vec4f center_normal = frame.normals_xyzrgba_32f.at<cv::Vec4f>(center_y, center_x);
-        std::cout << "Center normal XYZ: "
+        std::cout << "Center normal XYZ FLU: "
                   << center_normal[0] << ", "
                   << center_normal[1] << ", "
                   << center_normal[2] << "\n";
@@ -402,6 +478,7 @@ int main()
         ++frame_index;
 
         const CenterMeasurement measurement = sampleCenterMeasurement(frame);
+        const std::vector<std::string> imu_overlay_lines = makeImuOverlayLines(frame.imu);
         printOptionalDiagnostics(frame, frame_index);
 
         if ((frame_index % user_settings::DISPLAY_EVERY_N_FRAMES) == 0)
@@ -410,7 +487,7 @@ int main()
             {
                 // The frame matrices are bridge-owned views. Drawing here edits
                 // the current display buffer and is overwritten on the next grab.
-                drawOverlay(frame.left_bgra, fps_meter.fps(), measurement);
+                drawOverlay(frame.left_bgra, fps_meter.fps(), measurement, imu_overlay_lines);
                 showScaled("ZED Left + Measurements", frame.left_bgra, user_settings::DISPLAY_SCALE);
             }
             if (!frame.right_bgra.empty())

@@ -11,6 +11,8 @@
 
 #include <sl/Camera.hpp>
 
+#include <algorithm>
+#include <cmath>
 #include <stdexcept>
 #include <utility>
 
@@ -111,6 +113,90 @@ namespace zed_bridge
                 input.getStepBytes(sl::MEM::CPU));
         }
 
+        /**
+         * @brief Converts a ZED SDK float3 to the bridge vector type.
+         */
+        Vec3f toBridgeVec3(const sl::float3 &value)
+        {
+            return Vec3f{value.x, value.y, value.z};
+        }
+
+        /**
+         * @brief Converts a ZED SDK orientation quaternion to bridge x/y/z/w order.
+         */
+        Vec4d toBridgeQuaternion(const sl::Orientation &orientation)
+        {
+            return Vec4d{orientation.ox, orientation.oy, orientation.oz, orientation.ow};
+        }
+
+        /**
+         * @brief Normalizes an angle to [0, 360) degrees.
+         */
+        double normalize360Deg(double angle_deg)
+        {
+            double wrapped_deg = std::fmod(angle_deg, 360.0);
+            if (wrapped_deg < 0.0)
+            {
+                wrapped_deg += 360.0;
+            }
+            return wrapped_deg;
+        }
+
+        /**
+         * @brief Normalizes an angle to [-180, 180) degrees.
+         */
+        double normalize180Deg(double angle_deg)
+        {
+            double wrapped_deg = normalize360Deg(angle_deg + 180.0) - 180.0;
+            if (wrapped_deg == -180.0)
+            {
+                return 180.0;
+            }
+            return wrapped_deg;
+        }
+
+        /**
+         * @brief Converts an ENU-world, FLU-body quaternion to roll, pitch, yaw, and heading.
+         */
+        OrientationAngles quaternionToOrientationAnglesDeg(const Vec4d &quaternion)
+        {
+            static constexpr double radians_to_degrees = 180.0 / 3.14159265358979323846;
+
+            const double x = quaternion.x;
+            const double y = quaternion.y;
+            const double z = quaternion.z;
+            const double w = quaternion.w;
+            const double norm = std::sqrt(x * x + y * y + z * z + w * w);
+            if (norm <= 0.0 || !std::isfinite(norm))
+            {
+                return {};
+            }
+
+            const double qx = x / norm;
+            const double qy = y / norm;
+            const double qz = z / norm;
+            const double qw = w / norm;
+
+            const double sinr_cosp = 2.0 * (qw * qx + qy * qz);
+            const double cosr_cosp = 1.0 - 2.0 * (qx * qx + qy * qy);
+            const double roll_rad = std::atan2(sinr_cosp, cosr_cosp);
+
+            const double sinp = 2.0 * (qw * qy - qz * qx);
+            const double pitch_rad = std::asin(std::max(-1.0, std::min(1.0, sinp)));
+
+            const double siny_cosp = 2.0 * (qw * qz + qx * qy);
+            const double cosy_cosp = 1.0 - 2.0 * (qy * qy + qz * qz);
+            const double yaw_rad = std::atan2(siny_cosp, cosy_cosp);
+            const double yaw_enu_deg = normalize180Deg(yaw_rad * radians_to_degrees);
+            const double heading_deg = normalize360Deg(90.0 - yaw_enu_deg);
+
+            return OrientationAngles{
+                roll_rad * radians_to_degrees,
+                pitch_rad * radians_to_degrees,
+                yaw_enu_deg,
+                heading_deg};
+        }
+
     } // namespace
 
     /**
@@ -139,7 +225,7 @@ namespace zed_bridge
             init_params.camera_fps = config.fps;
             init_params.depth_mode = toSlDepthMode(config.depth_mode);
             init_params.coordinate_units = sl::UNIT::MILLIMETER;
-            init_params.coordinate_system = sl::COORDINATE_SYSTEM::IMAGE;
+            init_params.coordinate_system = sl::COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP_X_FWD;
             init_params.depth_minimum_distance = config.depth_minimum_distance_mm;
             init_params.depth_maximum_distance = config.depth_maximum_distance_mm;
             init_params.sdk_verbose = 1;
@@ -191,20 +277,20 @@ namespace zed_bridge
             }
 
             const sl::ERROR_CODE grab_status = camera.grab(runtime_params);
-        if (grab_status != sl::ERROR_CODE::SUCCESS)
-        {
-            // TIMEOUT or transient recovery states can happen during USB/camera
-            // interruptions. The demo simply skips this frame and keeps trying.
-            return false;
-        }
+            if (grab_status != sl::ERROR_CODE::SUCCESS)
+            {
+                // TIMEOUT or transient recovery states can happen during USB/camera
+                // interruptions. The demo simply skips this frame and keeps trying.
+                return false;
+            }
 
-        // Start from an empty frame so disabled outputs cannot leave stale
-        // cv::Mat headers from a previous use of the same ZedFrame object.
-        frame = ZedFrame{};
+            // Start from an empty frame so disabled outputs cannot leave stale
+            // cv::Mat headers from a previous use of the same ZedFrame object.
+            frame = ZedFrame{};
 
-        // retrieveImage() returns image-style outputs for display or ordinary
-        // image processing. retrieveMeasure() returns numeric outputs such as
-        // metric depth, confidence, disparity, normals, and point clouds.
+            // retrieveImage() returns image-style outputs for display or ordinary
+            // image processing. retrieveMeasure() returns numeric outputs such as
+            // metric depth, confidence, disparity, normals, and point clouds.
             if (config.retrieve_left_image)
             {
                 camera.retrieveImage(left_image, sl::VIEW::LEFT, sl::MEM::CPU);
@@ -251,6 +337,8 @@ namespace zed_bridge
                 frame.depth_u16_mm = slMatToCvMat(depth_u16_mm);
             }
 
+            retrieveImu(frame.imu);
+
             return true;
         }
 
@@ -284,6 +372,30 @@ namespace zed_bridge
             depth_u16_mm = sl::Mat(resolution, sl::MAT_TYPE::U16_C1, sl::MEM::CPU);
         }
 
+        /**
+         * @brief Retrieves frame-synchronized IMU data into the public frame type.
+         */
+        void retrieveImu(ImuSample &imu)
+        {
+            if (camera.getSensorsData(sensors_data, sl::TIME_REFERENCE::IMAGE) != sl::ERROR_CODE::SUCCESS)
+            {
+                return;
+            }
+
+            const uint64_t timestamp_ns = sensors_data.imu.timestamp.getNanoseconds();
+            if (timestamp_ns == 0)
+            {
+                return;
+            }
+
+            imu.available = true;
+            imu.timestamp_ns = timestamp_ns;
+            imu.linear_acceleration_mps2 = toBridgeVec3(sensors_data.imu.linear_acceleration);
+            imu.angular_velocity_dps = toBridgeVec3(sensors_data.imu.angular_velocity);
+            imu.orientation_xyzw = toBridgeQuaternion(sensors_data.imu.pose.getOrientation());
+            imu.orientation_angles_deg = quaternionToOrientationAnglesDeg(imu.orientation_xyzw);
+        }
+
         ZedCameraConfig config;
         ZedCameraInfo camera_info;
 
@@ -291,6 +403,7 @@ namespace zed_bridge
         // cv::Mat views exposed through ZedFrame.
         sl::Camera camera;
         sl::RuntimeParameters runtime_params;
+        sl::SensorsData sensors_data;
         bool is_open = false;
 
         sl::Mat left_image;

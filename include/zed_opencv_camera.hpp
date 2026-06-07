@@ -2,6 +2,8 @@
 
 #include <opencv2/core.hpp>
 
+#include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 
@@ -96,13 +98,13 @@ namespace zed_bridge
         ///< Retrieves the SDK colorized depth view for display only.
         bool retrieve_depth_image_for_display = true;
 
-        ///< Retrieves numeric 32-bit floating-point Z depth in millimeters.
+        ///< Retrieves numeric 32-bit floating-point depth in millimeters.
         bool retrieve_depth_map_f32 = true;
 
         ///< Retrieves numeric 32-bit floating-point confidence values.
         bool retrieve_confidence_map_f32 = true;
 
-        ///< Retrieves 32-bit floating-point XYZRGBA point-cloud values.
+        ///< Retrieves 32-bit floating-point XYZRGBA point-cloud values in X-forward, Y-left, Z-up coordinates.
         bool retrieve_point_cloud_xyzrgba = true;
 
         ///< Retrieves optional 32-bit floating-point disparity values.
@@ -127,6 +129,57 @@ namespace zed_bridge
     };
 
     /**
+     * @brief Three-component floating-point vector exposed without ZED SDK types.
+     */
+    struct Vec3f
+    {
+        float x = std::numeric_limits<float>::quiet_NaN();
+        float y = std::numeric_limits<float>::quiet_NaN();
+        float z = std::numeric_limits<float>::quiet_NaN();
+    };
+
+    /**
+     * @brief Four-component floating-point vector exposed without ZED SDK types.
+     */
+    struct Vec4d
+    {
+        double x = std::numeric_limits<double>::quiet_NaN();
+        double y = std::numeric_limits<double>::quiet_NaN();
+        double z = std::numeric_limits<double>::quiet_NaN();
+        double w = std::numeric_limits<double>::quiet_NaN();
+    };
+
+    /**
+     * @brief Roll, pitch, yaw, and heading angles in degrees.
+     *
+     * World frame is ENU: +X east, +Y north, +Z up. Body frame is FLU:
+     * +X forward, +Y left, +Z up. Yaw is measured CCW from east about +Z
+     * in [-180, 180]. Heading is measured clockwise from north in [0, 360).
+     */
+    struct OrientationAngles
+    {
+        double roll_deg = std::numeric_limits<double>::quiet_NaN();
+        double pitch_deg = std::numeric_limits<double>::quiet_NaN();
+        double yaw_enu_deg = std::numeric_limits<double>::quiet_NaN();
+        double heading_deg = std::numeric_limits<double>::quiet_NaN();
+    };
+
+    /**
+     * @brief Frame-synchronized IMU sample from the ZED camera.
+     *
+     * Linear acceleration is in m/s^2. Angular velocity is in deg/s.
+     */
+    struct ImuSample
+    {
+        bool available = false;
+        uint64_t timestamp_ns = 0;
+        Vec3f linear_acceleration_mps2;
+        Vec3f angular_velocity_dps;
+        Vec4d orientation_xyzw;
+        OrientationAngles orientation_angles_deg;
+    };
+
+    /**
      * @brief OpenCV views of one grabbed ZED frame.
      *
      * Matrices reference bridge-owned buffers and remain valid until the next
@@ -146,6 +199,7 @@ namespace zed_bridge
         cv::Mat disparity_32f;
         cv::Mat normals_xyzrgba_32f;
         cv::Mat depth_u16_mm;
+        ImuSample imu;
     };
 
     /**
