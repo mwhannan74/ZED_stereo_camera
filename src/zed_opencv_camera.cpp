@@ -114,19 +114,23 @@ namespace zed_bridge
         }
 
         /**
-         * @brief Converts a ZED SDK float3 to the bridge vector type.
+         * @brief Converts a ZED SDK float3 to an OpenCV fixed-size vector.
          */
-        Vec3f toBridgeVec3(const sl::float3 &value)
+        cv::Vec3f toCvVec3(const sl::float3 &value)
         {
-            return Vec3f{value.x, value.y, value.z};
+            return cv::Vec3f{value.x, value.y, value.z};
         }
 
         /**
          * @brief Converts a ZED SDK orientation quaternion to bridge x/y/z/w order.
          */
-        Vec4d toBridgeQuaternion(const sl::Orientation &orientation)
+        cv::Vec4f toCvQuaternion(const sl::Orientation &orientation)
         {
-            return Vec4d{orientation.ox, orientation.oy, orientation.oz, orientation.ow};
+            return cv::Vec4f{
+                static_cast<float>(orientation.ox),
+                static_cast<float>(orientation.oy),
+                static_cast<float>(orientation.oz),
+                static_cast<float>(orientation.ow)};
         }
 
         /**
@@ -158,14 +162,14 @@ namespace zed_bridge
         /**
          * @brief Converts an ENU-world, FLU-body quaternion to roll, pitch, yaw, and heading.
          */
-        OrientationAngles quaternionToOrientationAnglesDeg(const Vec4d &quaternion)
+        OrientationAngles quaternionToOrientationAnglesDeg(const cv::Vec4f &quaternion)
         {
             static constexpr double radians_to_degrees = 180.0 / 3.14159265358979323846;
 
-            const double x = quaternion.x;
-            const double y = quaternion.y;
-            const double z = quaternion.z;
-            const double w = quaternion.w;
+            const double x = quaternion[0];
+            const double y = quaternion[1];
+            const double z = quaternion[2];
+            const double w = quaternion[3];
             const double norm = std::sqrt(x * x + y * y + z * z + w * w);
             if (norm <= 0.0 || !std::isfinite(norm))
             {
@@ -390,9 +394,9 @@ namespace zed_bridge
 
             imu.available = true;
             imu.timestamp_ns = timestamp_ns;
-            imu.linear_acceleration_mps2 = toBridgeVec3(sensors_data.imu.linear_acceleration);
-            imu.angular_velocity_dps = toBridgeVec3(sensors_data.imu.angular_velocity);
-            imu.orientation_xyzw = toBridgeQuaternion(sensors_data.imu.pose.getOrientation());
+            imu.linear_acceleration_mps2 = toCvVec3(sensors_data.imu.linear_acceleration);
+            imu.angular_velocity_dps = toCvVec3(sensors_data.imu.angular_velocity);
+            imu.orientation_xyzw = toCvQuaternion(sensors_data.imu.pose.getOrientation());
             imu.orientation_angles_deg = quaternionToOrientationAnglesDeg(imu.orientation_xyzw);
         }
 

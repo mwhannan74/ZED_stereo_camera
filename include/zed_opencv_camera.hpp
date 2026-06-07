@@ -129,27 +129,6 @@ namespace zed_bridge
     };
 
     /**
-     * @brief Three-component floating-point vector exposed without ZED SDK types.
-     */
-    struct Vec3f
-    {
-        float x = std::numeric_limits<float>::quiet_NaN();
-        float y = std::numeric_limits<float>::quiet_NaN();
-        float z = std::numeric_limits<float>::quiet_NaN();
-    };
-
-    /**
-     * @brief Four-component floating-point vector exposed without ZED SDK types.
-     */
-    struct Vec4d
-    {
-        double x = std::numeric_limits<double>::quiet_NaN();
-        double y = std::numeric_limits<double>::quiet_NaN();
-        double z = std::numeric_limits<double>::quiet_NaN();
-        double w = std::numeric_limits<double>::quiet_NaN();
-    };
-
-    /**
      * @brief Roll, pitch, yaw, and heading angles in degrees.
      *
      * World frame is ENU: +X east, +Y north, +Z up. 
@@ -194,9 +173,19 @@ namespace zed_bridge
     {
         bool available = false;
         uint64_t timestamp_ns = 0;
-        Vec3f linear_acceleration_mps2;
-        Vec3f angular_velocity_dps;
-        Vec4d orientation_xyzw;
+        cv::Vec3f linear_acceleration_mps2 = {
+            std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::quiet_NaN()};
+        cv::Vec3f angular_velocity_dps = {
+            std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::quiet_NaN()};
+        cv::Vec4f orientation_xyzw = {
+            std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::quiet_NaN()};
         OrientationAngles orientation_angles_deg;
     };
 

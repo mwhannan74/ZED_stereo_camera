@@ -151,25 +151,25 @@ static std::string fixedValueText(double value, int width, int precision)
 /**
  * @brief Formats a three-component vector with fixed-width fields.
  */
-static std::string vec3Text(const zed_bridge::Vec3f &value, int width = 8, int precision = 2)
+static std::string vec3Text(const cv::Vec3f &value, int width = 8, int precision = 2)
 {
     std::ostringstream oss;
-    oss << fixedValueText(value.x, width, precision) << ", "
-        << fixedValueText(value.y, width, precision) << ", "
-        << fixedValueText(value.z, width, precision);
+    oss << fixedValueText(value[0], width, precision) << ", "
+        << fixedValueText(value[1], width, precision) << ", "
+        << fixedValueText(value[2], width, precision);
     return oss.str();
 }
 
 /**
  * @brief Formats a four-component vector with fixed-width fields.
  */
-static std::string vec4Text(const zed_bridge::Vec4d &value, int width = 8, int precision = 4)
+static std::string vec4Text(const cv::Vec4f &value, int width = 8, int precision = 4)
 {
     std::ostringstream oss;
-    oss << fixedValueText(value.x, width, precision) << ", "
-        << fixedValueText(value.y, width, precision) << ", "
-        << fixedValueText(value.z, width, precision) << ", "
-        << fixedValueText(value.w, width, precision);
+    oss << fixedValueText(value[0], width, precision) << ", "
+        << fixedValueText(value[1], width, precision) << ", "
+        << fixedValueText(value[2], width, precision) << ", "
+        << fixedValueText(value[3], width, precision);
     return oss.str();
 }
 
