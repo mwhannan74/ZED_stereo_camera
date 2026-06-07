@@ -129,19 +129,51 @@ namespace zed_bridge
     };
 
     /**
-     * @brief Roll, pitch, yaw, and heading angles in degrees.
+     * @brief Roll, pitch, and startup-relative yaw angles in degrees.
      *
-     * World frame is ENU: +X east, +Y north, +Z up. 
-     * Body frame is FLU: +X forward, +Y left, +Z up. 
-     * Yaw is measured CCW from east about +Z in [-180, 180]. 
-     * Heading is measured clockwise from north in [0, 360).
+     * Body/camera frame is FLU: +X forward, +Y left, +Z up. Yaw is measured
+     * about +Z in the SDK startup/reference frame, not against magnetic north.
      */
     struct OrientationAngles
     {
         double roll_deg = std::numeric_limits<double>::quiet_NaN();
         double pitch_deg = std::numeric_limits<double>::quiet_NaN();
-        double yaw_enu_deg = std::numeric_limits<double>::quiet_NaN();
-        double heading_deg = std::numeric_limits<double>::quiet_NaN();
+        double yaw_relative_deg = std::numeric_limits<double>::quiet_NaN();
+    };
+
+    /**
+     * @brief Reliability state for the SDK magnetometer heading estimate.
+     */
+    enum class MagneticHeadingState
+    {
+        Unavailable,
+        Good,
+        Ok,
+        NotGood,
+        NotCalibrated
+    };
+
+    /**
+     * @brief Frame-synchronized magnetometer sample from the ZED camera.
+     *
+     * Magnetic field values are in microtesla. `magnetic_heading_deg` is the
+     * SDK heading relative to magnetic north, not true/geographic north.
+     */
+    struct MagnetometerSample
+    {
+        bool available = false;
+        uint64_t timestamp_ns = 0;
+        cv::Vec3f magnetic_field_uncalibrated_ut = {
+            std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::quiet_NaN()};
+        cv::Vec3f magnetic_field_calibrated_ut = {
+            std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::quiet_NaN()};
+        float magnetic_heading_deg = std::numeric_limits<float>::quiet_NaN();
+        float magnetic_heading_accuracy = std::numeric_limits<float>::quiet_NaN();
+        MagneticHeadingState heading_state = MagneticHeadingState::Unavailable;
     };
 
     /**
@@ -153,12 +185,14 @@ namespace zed_bridge
      * This changes 3D outputs from the SDK default image frame
      * (`+X` right, `+Y` down, `+Z` forward) to:
      *
-     * - World frame: ENU (`+X` east, `+Y` north, `+Z` up)
      * - Body/camera frame: FLU (`+X` forward, `+Y` left, `+Z` up)
+     * - SDK startup/reference frame: Z-up, X-forward, with yaw initialized
+     *   from the camera startup/reference orientation.
      *
      * Affected outputs include point-cloud XYZ values, normal vectors, IMU
-     * orientation, and any future pose/tracking values. OpenCV images remain
-     * ordinary image matrices indexed by row/column.
+     * orientation, and any future pose/tracking values. This does not make IMU
+     * yaw a magnetic or geographic heading. OpenCV images remain ordinary image
+     * matrices indexed by row/column.
      */
 
     /**
@@ -167,7 +201,8 @@ namespace zed_bridge
      * Linear acceleration is in m/s^2 and angular velocity is in deg/s, both
      * expressed in the bridge's X-forward, Y-left, Z-up camera/body frame.
      * Orientation is the SDK quaternion in xyzw order for the selected
-     * coordinate system.
+     * coordinate system. Derived yaw is relative to the SDK startup/reference
+     * frame and is not a magnetic compass heading.
      */
     struct ImuSample
     {
@@ -214,6 +249,7 @@ namespace zed_bridge
         cv::Mat normals_xyzrgba_32f;
         cv::Mat depth_u16_mm;
         ImuSample imu;
+        MagnetometerSample magnetometer;
     };
 
     /**

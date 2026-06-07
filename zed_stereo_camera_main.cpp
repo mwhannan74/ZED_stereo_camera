@@ -174,6 +174,27 @@ static std::string vec4Text(const cv::Vec4f &value, int width = 8, int precision
 }
 
 /**
+ * @brief Formats the bridge magnetometer heading state for display.
+ */
+static std::string magneticHeadingStateText(zed_bridge::MagneticHeadingState state)
+{
+    switch (state)
+    {
+    case zed_bridge::MagneticHeadingState::Good:
+        return "good";
+    case zed_bridge::MagneticHeadingState::Ok:
+        return "ok";
+    case zed_bridge::MagneticHeadingState::NotGood:
+        return "not good";
+    case zed_bridge::MagneticHeadingState::NotCalibrated:
+        return "not calibrated";
+    case zed_bridge::MagneticHeadingState::Unavailable:
+    default:
+        return "unavailable";
+    }
+}
+
+/**
  * @brief Lightweight application-side FPS estimator.
  */
 class FpsMeter
@@ -352,25 +373,42 @@ static void drawOverlay(
 }
 
 /**
- * @brief Builds overlay lines for the current frame's IMU sample.
+ * @brief Builds overlay lines for the current frame's sensor samples.
  */
-static std::vector<std::string> makeImuOverlayLines(const zed_bridge::ImuSample &imu)
+static std::vector<std::string> makeSensorOverlayLines(
+    const zed_bridge::ImuSample &imu,
+    const zed_bridge::MagnetometerSample &magnetometer)
 {
     std::vector<std::string> lines;
     if (!imu.available)
     {
         lines.push_back("IMU: unavailable");
+    }
+    else
+    {
+        lines.push_back("IMU accel m/s^2: " + vec3Text(imu.linear_acceleration_mps2));
+        lines.push_back("IMU gyro deg/s:  " + vec3Text(imu.angular_velocity_dps));
+        lines.push_back("IMU quat xyzw:   " + vec4Text(imu.orientation_xyzw));
+        lines.push_back("IMU RPY rel deg: " +
+                        fixedValueText(imu.orientation_angles_deg.roll_deg, 8, 2) + ", " +
+                        fixedValueText(imu.orientation_angles_deg.pitch_deg, 8, 2) + ", " +
+                        fixedValueText(imu.orientation_angles_deg.yaw_relative_deg, 8, 2));
+    }
+
+    if (!magnetometer.available)
+    {
+        lines.push_back("Mag heading:    unavailable");
         return lines;
     }
 
-    lines.push_back("IMU accel m/s^2: " + vec3Text(imu.linear_acceleration_mps2));
-    lines.push_back("IMU gyro deg/s:  " + vec3Text(imu.angular_velocity_dps));
-    lines.push_back("IMU quat xyzw:   " + vec4Text(imu.orientation_xyzw));
-    lines.push_back("IMU RPY ENU deg: " +
-                    fixedValueText(imu.orientation_angles_deg.roll_deg, 8, 2) + ", " +
-                    fixedValueText(imu.orientation_angles_deg.pitch_deg, 8, 2) + ", " +
-                    fixedValueText(imu.orientation_angles_deg.yaw_enu_deg, 8, 2));
-    lines.push_back("IMU heading deg: " + fixedValueText(imu.orientation_angles_deg.heading_deg, 8, 2));
+    {
+        std::ostringstream oss;
+        oss << "Mag heading deg: " << fixedValueText(magnetometer.magnetic_heading_deg, 8, 2)
+            << " state=" << magneticHeadingStateText(magnetometer.heading_state)
+            << " acc=" << fixedValueText(magnetometer.magnetic_heading_accuracy, 5, 2);
+        lines.push_back(oss.str());
+    }
+    lines.push_back("Mag field uT:   " + vec3Text(magnetometer.magnetic_field_calibrated_ut));
     return lines;
 }
 
@@ -478,7 +516,7 @@ int main()
         ++frame_index;
 
         const CenterMeasurement measurement = sampleCenterMeasurement(frame);
-        const std::vector<std::string> imu_overlay_lines = makeImuOverlayLines(frame.imu);
+        const std::vector<std::string> sensor_overlay_lines = makeSensorOverlayLines(frame.imu, frame.magnetometer);
         printOptionalDiagnostics(frame, frame_index);
 
         if ((frame_index % user_settings::DISPLAY_EVERY_N_FRAMES) == 0)
@@ -487,7 +525,7 @@ int main()
             {
                 // The frame matrices are bridge-owned views. Drawing here edits
                 // the current display buffer and is overwritten on the next grab.
-                drawOverlay(frame.left_bgra, fps_meter.fps(), measurement, imu_overlay_lines);
+                drawOverlay(frame.left_bgra, fps_meter.fps(), measurement, sensor_overlay_lines);
                 showScaled("ZED Left + Measurements", frame.left_bgra, user_settings::DISPLAY_SCALE);
             }
             if (!frame.right_bgra.empty())

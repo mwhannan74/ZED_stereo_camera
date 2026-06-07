@@ -134,6 +134,29 @@ namespace zed_bridge
         }
 
         /**
+         * @brief Converts the ZED SDK magnetometer heading state to the bridge enum.
+         */
+        MagneticHeadingState toBridgeHeadingState(sl::SensorsData::MagnetometerData::HEADING_STATE state)
+        {
+            using SlHeadingState = sl::SensorsData::MagnetometerData::HEADING_STATE;
+
+            switch (state)
+            {
+            case SlHeadingState::GOOD:
+                return MagneticHeadingState::Good;
+            case SlHeadingState::OK:
+                return MagneticHeadingState::Ok;
+            case SlHeadingState::NOT_GOOD:
+                return MagneticHeadingState::NotGood;
+            case SlHeadingState::NOT_CALIBRATED:
+                return MagneticHeadingState::NotCalibrated;
+            case SlHeadingState::MAG_NOT_AVAILABLE:
+            default:
+                return MagneticHeadingState::Unavailable;
+            }
+        }
+
+        /**
          * @brief Normalizes an angle to [0, 360) degrees.
          */
         double normalize360Deg(double angle_deg)
@@ -160,7 +183,7 @@ namespace zed_bridge
         }
 
         /**
-         * @brief Converts an ENU-world, FLU-body quaternion to roll, pitch, yaw, and heading.
+         * @brief Converts an SDK startup-relative quaternion to roll, pitch, and yaw.
          */
         OrientationAngles quaternionToOrientationAnglesDeg(const cv::Vec4f &quaternion)
         {
@@ -191,14 +214,12 @@ namespace zed_bridge
             const double siny_cosp = 2.0 * (qw * qz + qx * qy);
             const double cosy_cosp = 1.0 - 2.0 * (qy * qy + qz * qz);
             const double yaw_rad = std::atan2(siny_cosp, cosy_cosp);
-            const double yaw_enu_deg = normalize180Deg(yaw_rad * radians_to_degrees);
-            const double heading_deg = normalize360Deg(90.0 - yaw_enu_deg);
+            const double yaw_relative_deg = normalize180Deg(yaw_rad * radians_to_degrees);
 
             return OrientationAngles{
                 roll_rad * radians_to_degrees,
                 pitch_rad * radians_to_degrees,
-                yaw_enu_deg,
-                heading_deg};
+                yaw_relative_deg};
         }
 
     } // namespace
@@ -341,7 +362,7 @@ namespace zed_bridge
                 frame.depth_u16_mm = slMatToCvMat(depth_u16_mm);
             }
 
-            retrieveImu(frame.imu);
+            retrieveSensors(frame);
 
             return true;
         }
@@ -377,15 +398,24 @@ namespace zed_bridge
         }
 
         /**
-         * @brief Retrieves frame-synchronized IMU data into the public frame type.
+         * @brief Retrieves frame-synchronized sensor data into the public frame type.
          */
-        void retrieveImu(ImuSample &imu)
+        void retrieveSensors(ZedFrame &frame)
         {
             if (camera.getSensorsData(sensors_data, sl::TIME_REFERENCE::IMAGE) != sl::ERROR_CODE::SUCCESS)
             {
                 return;
             }
 
+            retrieveImu(frame.imu);
+            retrieveMagnetometer(frame.magnetometer);
+        }
+
+        /**
+         * @brief Copies IMU data from the latest SDK sensor sample.
+         */
+        void retrieveImu(ImuSample &imu)
+        {
             const uint64_t timestamp_ns = sensors_data.imu.timestamp.getNanoseconds();
             if (timestamp_ns == 0)
             {
@@ -398,6 +428,27 @@ namespace zed_bridge
             imu.angular_velocity_dps = toCvVec3(sensors_data.imu.angular_velocity);
             imu.orientation_xyzw = toCvQuaternion(sensors_data.imu.pose.getOrientation());
             imu.orientation_angles_deg = quaternionToOrientationAnglesDeg(imu.orientation_xyzw);
+        }
+
+        /**
+         * @brief Copies magnetometer data from the latest SDK sensor sample.
+         */
+        void retrieveMagnetometer(MagnetometerSample &magnetometer)
+        {
+            const auto &sdk_magnetometer = sensors_data.magnetometer;
+            const uint64_t timestamp_ns = sdk_magnetometer.timestamp.getNanoseconds();
+            if (!sdk_magnetometer.is_available || timestamp_ns == 0)
+            {
+                return;
+            }
+
+            magnetometer.available = true;
+            magnetometer.timestamp_ns = timestamp_ns;
+            magnetometer.magnetic_field_uncalibrated_ut = toCvVec3(sdk_magnetometer.magnetic_field_uncalibrated);
+            magnetometer.magnetic_field_calibrated_ut = toCvVec3(sdk_magnetometer.magnetic_field_calibrated);
+            magnetometer.magnetic_heading_deg = sdk_magnetometer.magnetic_heading;
+            magnetometer.magnetic_heading_accuracy = sdk_magnetometer.magnetic_heading_accuracy;
+            magnetometer.heading_state = toBridgeHeadingState(sdk_magnetometer.magnetic_heading_state);
         }
 
         ZedCameraConfig config;

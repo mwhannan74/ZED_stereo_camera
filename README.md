@@ -64,7 +64,7 @@ Use this project as a working C++ starting point for:
 - Reading numeric depth at a pixel
 - Reading XYZ point-cloud data at a pixel in X-forward, Y-left, Z-up coordinates
 - Computing Euclidean range from XYZ
-- Reading frame-synchronized ZED 2 IMU acceleration, gyro, quaternion, roll/pitch/yaw, and heading values
+- Reading frame-synchronized ZED 2 IMU acceleration, gyro, quaternion, roll/pitch/yaw, and magnetometer heading values
 - Prototyping an OpenCV-facing camera interface for a larger application
 
 This is not a final production architecture. It is a compact baseline that proves the camera, SDK, CUDA, OpenCV, CMake setup, and library/executable boundary all work together.
@@ -110,8 +110,8 @@ The bridge intentionally opens the ZED SDK with `sl::COORDINATE_SYSTEM::RIGHT_HA
 
 This means the bridge uses:
 
-- World frame: ENU (`+X` east, `+Y` north, `+Z` up)
 - Body/camera frame: FLU (`+X` forward, `+Y` left, `+Z` up)
+- SDK startup/reference frame: Z-up, X-forward. Its horizontal yaw origin is the camera's startup/reference orientation, not magnetic or geographic north.
 
 This affects 3D outputs such as point-cloud XYZ values, normal vectors, IMU orientation, and any future pose/tracking data. OpenCV images are unchanged: they are still ordinary row/column image matrices.
 
@@ -387,7 +387,7 @@ Expected behavior:
   - Center-pixel Euclidean range
   - Center-pixel confidence
   - Center-pixel XYZ value in X-forward, Y-left, Z-up coordinates
-  - Frame-synchronized IMU acceleration, gyro, quaternion, roll/pitch/yaw, and heading values
+  - Frame-synchronized IMU acceleration, gyro, quaternion, startup-relative roll/pitch/yaw, and magnetometer heading values
 
 Exit by clicking an OpenCV window and pressing:
 
@@ -528,17 +528,21 @@ The bridge opens the SDK in `RIGHT_HANDED_Z_UP_X_FWD`, so point-cloud axes are:
 
 The bridge treats orientation as:
 
-- World frame: ENU (`+X` east, `+Y` north, `+Z` up)
 - Body/camera frame: FLU (`+X` forward, `+Y` left, `+Z` up)
-- `yaw_enu_deg`: measured from world `+X` east, positive counter-clockwise about `+Z`, normalized to `[-180, 180]`
-- `heading_deg`: measured from north, positive clockwise, normalized to `[0, 360)`
+- `yaw_relative_deg`: startup/reference-frame yaw about `+Z`, normalized to `[-180, 180]`
 
-The yaw/heading conversion is:
+Do not treat IMU yaw as compass heading. The SDK startup/reference frame preserves the camera's initial yaw, so yaw is useful for relative rotation after startup but is not magnetic or geographic heading.
+
+Magnetometer data is exposed separately:
 
 ```text
-heading_deg = normalize_360(90.0 - yaw_enu_deg)
-yaw_enu_deg = normalize_180(90.0 - heading_deg)
+magnetic_heading_deg       heading relative to magnetic north
+magnetic_heading_accuracy  SDK accuracy in [0.0, 1.0]; negative means calibration is needed
+heading_state              good, ok, not good, not calibrated, or unavailable
+magnetic_field_calibrated_ut / magnetic_field_uncalibrated_ut
 ```
+
+Use the magnetometer heading for compass-like behavior. It is magnetic north, not true/geographic north, and depends on calibration plus local magnetic interference.
 
 Used for:
 
