@@ -53,7 +53,8 @@ namespace zed_bridge
                 return sl::DEPTH_MODE::NEURAL_PLUS;
             case DepthMode::NeuralLight:
             default:
-                return sl::DEPTH_MODE::NEURAL_LIGHT;
+                //return sl::DEPTH_MODE::NEURAL_LIGHT; // new version of SDK (v5)
+                return sl::DEPTH_MODE::PERFORMANCE; // old version of SDK (v4)
             }
         }
 
