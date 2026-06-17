@@ -210,20 +210,15 @@ namespace zed_bridge
     /**
      * @brief Frame-synchronized IMU sample from the ZED camera.
      *
-     * Linear acceleration is in m/s^2 and angular velocity is in deg/s, both
-     * expressed in the bridge's X-forward, Y-left, Z-up camera/body frame.
-     * Orientation is the SDK quaternion in xyzw order for the selected
-     * coordinate system. Derived yaw is relative to the SDK startup/reference
-     * frame and is not a magnetic compass heading.
+     * Angular velocity is in deg/s and expressed in the bridge's X-forward,
+     * Y-left, Z-up camera/body frame. Orientation is the SDK quaternion in xyzw
+     * order for the selected coordinate system. Derived yaw is relative to the
+     * SDK startup/reference frame and is not a magnetic compass heading.
      */
     struct ImuSample
     {
         bool available = false;
         uint64_t timestamp_ns = 0;
-        cv::Vec3f linear_acceleration_mps2 = {
-            std::numeric_limits<float>::quiet_NaN(),
-            std::numeric_limits<float>::quiet_NaN(),
-            std::numeric_limits<float>::quiet_NaN()};
         cv::Vec3f angular_velocity_dps = {
             std::numeric_limits<float>::quiet_NaN(),
             std::numeric_limits<float>::quiet_NaN(),

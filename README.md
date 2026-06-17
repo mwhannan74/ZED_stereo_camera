@@ -64,7 +64,7 @@ Use this project as a working C++ starting point for:
 - Reading numeric depth at a pixel
 - Reading XYZ point-cloud data at a pixel in X-forward, Y-left, Z-up coordinates
 - Computing Euclidean range from XYZ
-- Reading frame-synchronized ZED 2 IMU acceleration, gyro, quaternion, roll/pitch/yaw, magnetometer heading, and fused magnetic heading values
+- Reading frame-synchronized ZED 2 IMU gyro, quaternion, roll/pitch/yaw, magnetometer heading, and fused magnetic heading values
 - Prototyping an OpenCV-facing camera interface for a larger application
 
 This is not a final production architecture. It is a compact baseline that proves the camera, SDK, CUDA, OpenCV, CMake setup, and library/executable boundary all work together.
@@ -387,7 +387,7 @@ Expected behavior:
   - Center-pixel Euclidean range
   - Center-pixel confidence
   - Center-pixel XYZ value in X-forward, Y-left, Z-up coordinates
-  - Frame-synchronized IMU acceleration, gyro, quaternion, startup-relative roll/pitch/yaw, magnetometer heading, and fused magnetic heading values
+  - Frame-synchronized IMU gyro, quaternion, startup-relative roll/pitch/yaw, magnetometer heading, and fused magnetic heading values
 
 Exit by clicking an OpenCV window and pressing:
 

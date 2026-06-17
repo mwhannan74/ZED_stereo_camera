@@ -392,7 +392,6 @@ static std::vector<std::string> makeSensorOverlayLines(
     }
     else
     {
-        lines.push_back("IMU accel m/s^2: " + vec3Text(imu.linear_acceleration_mps2));
         lines.push_back("IMU gyro deg/s:  " + vec3Text(imu.angular_velocity_dps));
         lines.push_back("IMU quat xyzw:   " + vec4Text(imu.orientation_xyzw));
         lines.push_back("IMU RPY rel deg: " +

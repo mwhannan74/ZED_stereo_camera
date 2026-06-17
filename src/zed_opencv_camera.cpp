@@ -457,7 +457,6 @@ namespace zed_bridge
 
             imu.available = true;
             imu.timestamp_ns = timestamp_ns;
-            imu.linear_acceleration_mps2 = toCvVec3(sensors_data.imu.linear_acceleration);
             imu.angular_velocity_dps = toCvVec3(sensors_data.imu.angular_velocity);
             imu.orientation_xyzw = toCvQuaternion(sensors_data.imu.pose.getOrientation());
             imu.orientation_angles_deg = quaternionToOrientationAnglesDeg(imu.orientation_xyzw);
