@@ -118,7 +118,8 @@ namespace zed_bridge
 
         ///< Complementary correction applied on each new valid magnetometer heading sample.
         ///< Lower values trust IMU yaw longer; higher values snap back to magnetic north faster.
-        double heading_fusion_gain = 0.001;
+        ///< Smaller than 0.02 and it takes too much time for the filter to converge to steady state.
+        double heading_fusion_gain = 0.02; 
     };
 
     /**

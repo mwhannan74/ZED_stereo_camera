@@ -549,7 +549,7 @@ The bridge also exposes `fused_heading.heading_deg`, a one-dimensional complemen
 - IMU yaw deltas provide smooth short-term heading prediction.
 - Valid `GOOD` or `OK` magnetometer headings slowly correct drift and establish magnetic north.
 - The filter only applies magnetic correction when the magnetometer timestamp advances, so a 100 FPS camera loop does not double-apply a 50 Hz heading sample.
-- `ZedCameraConfig::heading_fusion_gain` controls the correction per new magnetometer sample and defaults to `0.02`. Lower values drift-correct more slowly; higher values follow the compass faster.
+- `ZedCameraConfig::heading_fusion_gain` controls the correction per new magnetometer sample and defaults to `0.001`. Lower values drift-correct more slowly; higher values follow the compass faster.
 
 The filter uses the sign convention difference between ENU yaw and compass heading:
 
