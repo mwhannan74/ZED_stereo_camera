@@ -52,6 +52,10 @@ namespace user_settings
     static constexpr bool RETRIEVE_NORMALS_F32 = false;
     static constexpr bool RETRIEVE_DEPTH_U16_MM = false;
 
+    // Heading fusion gain is applied once per valid magnetometer sample.
+    // Lower values drift-correct more slowly; higher values follow the compass faster.
+    static constexpr double HEADING_FUSION_GAIN = 0.02;
+
 } // namespace user_settings
 
 /**
@@ -78,6 +82,7 @@ static zed_bridge::ZedCameraConfig makeCameraConfig()
     config.retrieve_disparity_f32 = user_settings::RETRIEVE_DISPARITY_F32;
     config.retrieve_normals_f32 = user_settings::RETRIEVE_NORMALS_F32;
     config.retrieve_depth_u16_mm = user_settings::RETRIEVE_DEPTH_U16_MM;
+    config.heading_fusion_gain = user_settings::HEADING_FUSION_GAIN;
     return config;
 }
 
@@ -377,7 +382,8 @@ static void drawOverlay(
  */
 static std::vector<std::string> makeSensorOverlayLines(
     const zed_bridge::ImuSample &imu,
-    const zed_bridge::MagnetometerSample &magnetometer)
+    const zed_bridge::MagnetometerSample &magnetometer,
+    const zed_bridge::FusedHeadingSample &fused_heading)
 {
     std::vector<std::string> lines;
     if (!imu.available)
@@ -398,9 +404,8 @@ static std::vector<std::string> makeSensorOverlayLines(
     if (!magnetometer.available)
     {
         lines.push_back("Mag heading:    unavailable");
-        return lines;
     }
-
+    else
     {
         std::ostringstream oss;
         oss << "Mag heading deg: " << fixedValueText(magnetometer.magnetic_heading_deg, 8, 2)
@@ -408,7 +413,22 @@ static std::vector<std::string> makeSensorOverlayLines(
             << " acc=" << fixedValueText(magnetometer.magnetic_heading_accuracy, 5, 2);
         lines.push_back(oss.str());
     }
-    lines.push_back("Mag field uT:   " + vec3Text(magnetometer.magnetic_field_calibrated_ut));
+
+    if (fused_heading.available)
+    {
+        std::ostringstream oss;
+        oss << "Fused heading:  " << fixedValueText(fused_heading.heading_deg, 8, 2)
+            << " pred=" << fixedValueText(fused_heading.predicted_heading_deg, 8, 2);
+        if (std::isfinite(fused_heading.magnetic_correction_error_deg))
+        {
+            oss << " err=" << fixedValueText(fused_heading.magnetic_correction_error_deg, 7, 2);
+        }
+        lines.push_back(oss.str());
+    }
+    else
+    {
+        lines.push_back("Fused heading:  unavailable");
+    }
     return lines;
 }
 
@@ -516,7 +536,8 @@ int main()
         ++frame_index;
 
         const CenterMeasurement measurement = sampleCenterMeasurement(frame);
-        const std::vector<std::string> sensor_overlay_lines = makeSensorOverlayLines(frame.imu, frame.magnetometer);
+        const std::vector<std::string> sensor_overlay_lines =
+            makeSensorOverlayLines(frame.imu, frame.magnetometer, frame.fused_heading);
         printOptionalDiagnostics(frame, frame_index);
 
         if ((frame_index % user_settings::DISPLAY_EVERY_N_FRAMES) == 0)

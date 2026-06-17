@@ -115,6 +115,10 @@ namespace zed_bridge
 
         ///< Retrieves optional unsigned 16-bit depth in millimeters.
         bool retrieve_depth_u16_mm = false;
+
+        ///< Complementary correction applied on each new valid magnetometer heading sample.
+        ///< Lower values trust IMU yaw longer; higher values snap back to magnetic north faster.
+        double heading_fusion_gain = 0.001;
     };
 
     /**
@@ -156,24 +160,31 @@ namespace zed_bridge
     /**
      * @brief Frame-synchronized magnetometer sample from the ZED camera.
      *
-     * Magnetic field values are in microtesla. `magnetic_heading_deg` is the
-     * SDK heading relative to magnetic north, not true/geographic north.
+     * `magnetic_heading_deg` is the SDK heading relative to magnetic north,
+     * not true/geographic north.
      */
     struct MagnetometerSample
     {
         bool available = false;
         uint64_t timestamp_ns = 0;
-        cv::Vec3f magnetic_field_uncalibrated_ut = {
-            std::numeric_limits<float>::quiet_NaN(),
-            std::numeric_limits<float>::quiet_NaN(),
-            std::numeric_limits<float>::quiet_NaN()};
-        cv::Vec3f magnetic_field_calibrated_ut = {
-            std::numeric_limits<float>::quiet_NaN(),
-            std::numeric_limits<float>::quiet_NaN(),
-            std::numeric_limits<float>::quiet_NaN()};
         float magnetic_heading_deg = std::numeric_limits<float>::quiet_NaN();
         float magnetic_heading_accuracy = std::numeric_limits<float>::quiet_NaN();
         MagneticHeadingState heading_state = MagneticHeadingState::Unavailable;
+    };
+
+    /**
+     * @brief Magnetometer-referenced heading fused with short-term IMU yaw changes.
+     *
+     * `heading_deg` is a magnetic heading: 0 is north, 90 is east, and values
+     * are normalized to [0, 360). It uses IMU yaw deltas for fast response and
+     * applies slow corrections from valid magnetometer heading samples.
+     */
+    struct FusedHeadingSample
+    {
+        bool available = false;
+        double heading_deg = std::numeric_limits<double>::quiet_NaN();
+        double predicted_heading_deg = std::numeric_limits<double>::quiet_NaN();
+        double magnetic_correction_error_deg = std::numeric_limits<double>::quiet_NaN();
     };
 
     /**
@@ -250,6 +261,7 @@ namespace zed_bridge
         cv::Mat depth_u16_mm;
         ImuSample imu;
         MagnetometerSample magnetometer;
+        FusedHeadingSample fused_heading;
     };
 
     /**

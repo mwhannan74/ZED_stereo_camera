@@ -64,7 +64,7 @@ Use this project as a working C++ starting point for:
 - Reading numeric depth at a pixel
 - Reading XYZ point-cloud data at a pixel in X-forward, Y-left, Z-up coordinates
 - Computing Euclidean range from XYZ
-- Reading frame-synchronized ZED 2 IMU acceleration, gyro, quaternion, roll/pitch/yaw, and magnetometer heading values
+- Reading frame-synchronized ZED 2 IMU acceleration, gyro, quaternion, roll/pitch/yaw, magnetometer heading, and fused magnetic heading values
 - Prototyping an OpenCV-facing camera interface for a larger application
 
 This is not a final production architecture. It is a compact baseline that proves the camera, SDK, CUDA, OpenCV, CMake setup, and library/executable boundary all work together.
@@ -387,7 +387,7 @@ Expected behavior:
   - Center-pixel Euclidean range
   - Center-pixel confidence
   - Center-pixel XYZ value in X-forward, Y-left, Z-up coordinates
-  - Frame-synchronized IMU acceleration, gyro, quaternion, startup-relative roll/pitch/yaw, and magnetometer heading values
+  - Frame-synchronized IMU acceleration, gyro, quaternion, startup-relative roll/pitch/yaw, magnetometer heading, and fused magnetic heading values
 
 Exit by clicking an OpenCV window and pressing:
 
@@ -530,6 +530,7 @@ The bridge treats orientation as:
 
 - Body/camera frame: FLU (`+X` forward, `+Y` left, `+Z` up)
 - `yaw_relative_deg`: startup/reference-frame yaw about `+Z`, normalized to `[-180, 180]`
+- Fused heading: magnetic heading where `0` is north and positive rotation is clockwise, normalized to `[0, 360)`
 
 Do not treat IMU yaw as compass heading. The SDK startup/reference frame preserves the camera's initial yaw, so yaw is useful for relative rotation after startup but is not magnetic or geographic heading.
 
@@ -539,10 +540,25 @@ Magnetometer data is exposed separately:
 magnetic_heading_deg       heading relative to magnetic north
 magnetic_heading_accuracy  SDK accuracy in [0.0, 1.0]; negative means calibration is needed
 heading_state              good, ok, not good, not calibrated, or unavailable
-magnetic_field_calibrated_ut / magnetic_field_uncalibrated_ut
 ```
 
 Use the magnetometer heading for compass-like behavior. It is magnetic north, not true/geographic north, and depends on calibration plus local magnetic interference.
+
+The bridge also exposes `fused_heading.heading_deg`, a one-dimensional complementary heading filter:
+
+- IMU yaw deltas provide smooth short-term heading prediction.
+- Valid `GOOD` or `OK` magnetometer headings slowly correct drift and establish magnetic north.
+- The filter only applies magnetic correction when the magnetometer timestamp advances, so a 100 FPS camera loop does not double-apply a 50 Hz heading sample.
+- `ZedCameraConfig::heading_fusion_gain` controls the correction per new magnetometer sample and defaults to `0.02`. Lower values drift-correct more slowly; higher values follow the compass faster.
+
+The filter uses the sign convention difference between ENU yaw and compass heading:
+
+```text
+delta_yaw_enu_deg = wrap180(yaw_enu_now_deg - yaw_enu_previous_deg)
+heading_predicted_deg = wrap360(heading_fused_previous_deg - delta_yaw_enu_deg)
+heading_error_deg = wrap180(magnetic_heading_deg - heading_predicted_deg)
+heading_fused_deg = wrap360(heading_predicted_deg + gain * heading_error_deg)
+```
 
 Used for:
 
@@ -606,6 +622,7 @@ RETRIEVE_POINT_CLOUD_XYZRGBA
 RETRIEVE_DISPARITY_F32
 RETRIEVE_NORMALS_F32
 RETRIEVE_DEPTH_U16_MM
+HEADING_FUSION_GAIN
 ```
 
 These settings are copied into `zed_bridge::ZedCameraConfig` before opening the camera. The bridge currently uses millimeters and `RIGHT_HANDED_Z_UP_X_FWD` coordinates internally.

@@ -184,6 +184,23 @@ namespace zed_bridge
         }
 
         /**
+         * @brief Returns true when a magnetometer sample should correct fused heading.
+         */
+        bool hasUsableMagneticHeading(const MagnetometerSample &magnetometer)
+        {
+            if (!magnetometer.available ||
+                !std::isfinite(magnetometer.magnetic_heading_deg) ||
+                !std::isfinite(magnetometer.magnetic_heading_accuracy) ||
+                magnetometer.magnetic_heading_accuracy < 0.0f)
+            {
+                return false;
+            }
+
+            return magnetometer.heading_state == MagneticHeadingState::Good ||
+                   magnetometer.heading_state == MagneticHeadingState::Ok;
+        }
+
+        /**
          * @brief Converts an SDK startup-relative quaternion to roll, pitch, and yaw.
          */
         OrientationAngles quaternionToOrientationAnglesDeg(const cv::Vec4f &quaternion)
@@ -288,6 +305,7 @@ namespace zed_bridge
             runtime_params.measure3D_reference_frame = sl::REFERENCE_FRAME::CAMERA;
 
             allocateBuffers(resolution);
+            resetHeadingFusion();
             is_open = true;
             return true;
         }
@@ -377,7 +395,20 @@ namespace zed_bridge
             {
                 camera.close();
                 is_open = false;
+                resetHeadingFusion();
             }
+        }
+
+        /**
+         * @brief Clears state used by the complementary heading filter.
+         */
+        void resetHeadingFusion()
+        {
+            has_previous_imu_yaw = false;
+            previous_imu_yaw_enu_deg = std::numeric_limits<double>::quiet_NaN();
+            has_fused_heading = false;
+            previous_fused_heading_deg = std::numeric_limits<double>::quiet_NaN();
+            last_corrected_magnetometer_timestamp_ns = 0;
         }
 
         /**
@@ -410,6 +441,7 @@ namespace zed_bridge
 
             retrieveImu(frame.imu);
             retrieveMagnetometer(frame.magnetometer);
+            updateFusedHeading(frame.fused_heading, frame.imu, frame.magnetometer);
         }
 
         /**
@@ -445,11 +477,73 @@ namespace zed_bridge
 
             magnetometer.available = true;
             magnetometer.timestamp_ns = timestamp_ns;
-            magnetometer.magnetic_field_uncalibrated_ut = toCvVec3(sdk_magnetometer.magnetic_field_uncalibrated);
-            magnetometer.magnetic_field_calibrated_ut = toCvVec3(sdk_magnetometer.magnetic_field_calibrated);
             magnetometer.magnetic_heading_deg = sdk_magnetometer.magnetic_heading;
             magnetometer.magnetic_heading_accuracy = sdk_magnetometer.magnetic_heading_accuracy;
             magnetometer.heading_state = toBridgeHeadingState(sdk_magnetometer.magnetic_heading_state);
+        }
+
+        /**
+         * @brief Fuses IMU yaw deltas with absolute magnetic heading corrections.
+         */
+        void updateFusedHeading(
+            FusedHeadingSample &fused_heading,
+            const ImuSample &imu,
+            const MagnetometerSample &magnetometer)
+        {
+            if (!imu.available || !std::isfinite(imu.orientation_angles_deg.yaw_relative_deg))
+            {
+                return;
+            }
+
+            const double yaw_enu_now_deg = imu.orientation_angles_deg.yaw_relative_deg;
+            if (!has_previous_imu_yaw)
+            {
+                previous_imu_yaw_enu_deg = yaw_enu_now_deg;
+                has_previous_imu_yaw = true;
+            }
+
+            if (!has_fused_heading)
+            {
+                if (!hasUsableMagneticHeading(magnetometer))
+                {
+                    return;
+                }
+
+                previous_fused_heading_deg = normalize360Deg(magnetometer.magnetic_heading_deg);
+                has_fused_heading = true;
+                last_corrected_magnetometer_timestamp_ns = magnetometer.timestamp_ns;
+
+                fused_heading.available = true;
+                fused_heading.heading_deg = previous_fused_heading_deg;
+                fused_heading.predicted_heading_deg = previous_fused_heading_deg;
+                fused_heading.magnetic_correction_error_deg = 0.0;
+                previous_imu_yaw_enu_deg = yaw_enu_now_deg;
+                return;
+            }
+
+            const double delta_yaw_enu_deg = normalize180Deg(yaw_enu_now_deg - previous_imu_yaw_enu_deg);
+            previous_imu_yaw_enu_deg = yaw_enu_now_deg;
+
+            const double heading_predicted_deg = normalize360Deg(previous_fused_heading_deg - delta_yaw_enu_deg);
+            double heading_fused_deg = heading_predicted_deg;
+            double heading_error_deg = std::numeric_limits<double>::quiet_NaN();
+
+            if (hasUsableMagneticHeading(magnetometer) &&
+                magnetometer.timestamp_ns != last_corrected_magnetometer_timestamp_ns)
+            {
+                const double correction_gain = std::clamp(config.heading_fusion_gain, 0.0, 1.0);
+                heading_error_deg = normalize180Deg(magnetometer.magnetic_heading_deg - heading_predicted_deg);
+                heading_fused_deg = normalize360Deg(
+                    heading_predicted_deg + correction_gain * heading_error_deg);
+                last_corrected_magnetometer_timestamp_ns = magnetometer.timestamp_ns;
+            }
+
+            previous_fused_heading_deg = heading_fused_deg;
+
+            fused_heading.available = true;
+            fused_heading.heading_deg = heading_fused_deg;
+            fused_heading.predicted_heading_deg = heading_predicted_deg;
+            fused_heading.magnetic_correction_error_deg = heading_error_deg;
         }
 
         ZedCameraConfig config;
@@ -471,6 +565,12 @@ namespace zed_bridge
         sl::Mat disparity_f32;
         sl::Mat normals_f32;
         sl::Mat depth_u16_mm;
+
+        bool has_previous_imu_yaw = false;
+        double previous_imu_yaw_enu_deg = std::numeric_limits<double>::quiet_NaN();
+        bool has_fused_heading = false;
+        double previous_fused_heading_deg = std::numeric_limits<double>::quiet_NaN();
+        uint64_t last_corrected_magnetometer_timestamp_ns = 0;
     };
 
     /**
