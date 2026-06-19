@@ -10,6 +10,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Export compile flags/includes for IntelliSense and other editor tooling.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+option(ZED_STEREO_CAMERA_BUILD_DEMO "Build the standalone ZED camera demo executable" ON)
+
 # ------------------------------------------------------------
 # OpenCV
 # ------------------------------------------------------------
@@ -74,17 +76,19 @@ target_link_libraries(zed_opencv_bridge
 # ------------------------------------------------------------
 # Demo executable
 # ------------------------------------------------------------
-add_executable(zed_stereo_camera
-    zed_stereo_camera_main.cpp
-)
+if(ZED_STEREO_CAMERA_BUILD_DEMO)
+    add_executable(zed_stereo_camera
+        zed_stereo_camera_main.cpp
+    )
 
-target_link_libraries(zed_stereo_camera PRIVATE
-    zed_opencv_bridge
-)
+    target_link_libraries(zed_stereo_camera PRIVATE
+        zed_opencv_bridge
+    )
 
-set_target_properties(zed_stereo_camera PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
-)
+    set_target_properties(zed_stereo_camera PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    )
+endif()
 
 message(STATUS "---- ZED / CUDA / OpenCV configuration ----")
 message(STATUS "ZED include dirs:       ${ZED_INCLUDE_DIRS}")
