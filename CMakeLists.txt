@@ -78,7 +78,7 @@ target_link_libraries(zed_opencv_bridge
 # ------------------------------------------------------------
 if(ZED_STEREO_CAMERA_BUILD_DEMO)
     add_executable(zed_stereo_camera
-        zed_stereo_camera_main.cpp
+        src/zed_stereo_camera_main.cpp
     )
 
     target_link_libraries(zed_stereo_camera PRIVATE
