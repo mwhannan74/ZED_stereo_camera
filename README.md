@@ -43,7 +43,7 @@ ZED_stereo_camera/
   local_paths.cmake
   src/
     zed_opencv_camera.cpp
-  zed_stereo_camera_main.cpp
+    zed_stereo_camera_main.cpp
   README.md
 ```
 
@@ -128,7 +128,7 @@ zed_stereo_camera
 Its source file is:
 
 ```text
-zed_stereo_camera_main.cpp
+src/zed_stereo_camera_main.cpp
 ```
 
 The demo app includes only the bridge header and OpenCV display headers. It does not include ZED or CUDA headers directly.
@@ -138,6 +138,11 @@ This separation is intentional:
 - ZED/CUDA setup stays inside the bridge implementation.
 - OpenCV `cv::Mat` is the data boundary between camera code and application code.
 - The demo can later be replaced by another executable that links the same bridge.
+
+The demo target is enabled by default for standalone builds. Parent CMake
+projects can set `ZED_STEREO_CAMERA_BUILD_DEMO=OFF` before adding this project
+as a subdirectory, which lets them consume `zed_opencv_bridge` without also
+building the standalone demo executable.
 
 ---
 
@@ -313,7 +318,7 @@ Close those tools before running this application. Only one process should own t
 Open PowerShell in the project folder:
 
 ```powershell
-cd "C:\Users\mwhan\Documents\CODE_SANDBOX\CPlusPlus\Solutions\ZED_stereo_camera"
+cd "C:\Users\mwhan\Documents\CODE_SANDBOX\CPlusPlus\Solutions\ZED_ICP\ZED_stereo_camera"
 ```
 
 Start from a clean build folder:
@@ -586,7 +591,7 @@ MEASURE::DEPTH_U16_MM
 Demo camera and processing settings are near the top of:
 
 ```text
-zed_stereo_camera_main.cpp
+src/zed_stereo_camera_main.cpp
 ```
 
 Look for:
